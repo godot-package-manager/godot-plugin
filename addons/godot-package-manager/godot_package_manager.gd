@@ -94,6 +94,10 @@ class Result:
 	static func err(error_code: int = 1, description: String = "") -> Result:
 		return Result.new(Error.new(error_code, description))
 
+signal update_started(num_packages)
+signal update_checkpoint(checkpoint_num)
+signal update_finshed()
+
 const REGISTRY := "https://registry.npmjs.org"
 const ADDONS_DIR_FORMAT := "res://addons/%s"
 
@@ -248,7 +252,7 @@ static func read_config(file_name: String) -> Result:
 
 	return Result.ok(data)
 
-static func update() -> Result:
+func update() -> Result:
 	#region Read all configs
 
 	var package_file := {}
@@ -267,8 +271,11 @@ static func update() -> Result:
 
 	var dir := Directory.new()
 	
+	emit_signal("update_started", package_file["packages"].size())
+	
 	# Used for compiling together all errors that may occur
 	var failed_packages := PoolStringArray()
+	var completed_package_count: int = 0
 	for package_name in package_file["packages"]:
 		var package_version := ""
 
@@ -325,6 +332,11 @@ static func update() -> Result:
 		if dir.remove(download_location) != OK:
 			failed_packages.append("%s - Failed to remove tarball" % package_name)
 			continue
+		
+		completed_package_count += 1
+		emit_signal("update_checkpoint", completed_package_count)
+	
+	emit_signal("update_finshed")
 	
 	if not failed_packages.empty():
 		failed_packages.invert()
