@@ -1,0 +1,24 @@
+{
+  "name": "@sometimes_youwin/verbal-expressions",
+  "version": "1.0.1",
+  "description": "GDScript regular expressions made easy.",
+  "main": "verbal_expressions.gd",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/you-win/gdscript-verbal-expressions.git"
+  },
+  "keywords": [
+    "regex",
+    "gdscript",
+    "godot"
+  ],
+  "author": "Tim Yuen",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/you-win/gdscript-verbal-expressions/issues"
+  },
+  "homepage": "https://github.com/you-win/gdscript-verbal-expressions#readme"
+}

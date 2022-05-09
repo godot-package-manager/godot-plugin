@@ -1,0 +1,7 @@
+{
+	"name": "Godot Package Manager",
+	"packages": {
+		"@sometimes_youwin/advanced-expression": "1.0.0",
+		"@sometimes_youwin/verbal-expressions": "1.0.1"
+	}
+}
