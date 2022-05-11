@@ -840,7 +840,10 @@ func dry_run() -> Result:
 		return res
 
 	var hooks: Hooks = res.unwrap()
-	hooks.run(self, ValidHooks.PRE_DRY_RUN)
+	var pre_dry_run_res = hooks.run(self, ValidHooks.PRE_DRY_RUN)
+	if typeof(pre_dry_run_res) == TYPE_BOOL and pre_dry_run_res == false:
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_DRY_RUN)
+		return Result.ok({DryRunValues.OK: true})
 
 	var dir := Directory.new()
 
@@ -848,7 +851,7 @@ func dry_run() -> Result:
 	
 	var failed_packages := FailedPackages.new()
 	var packages_to_update := []
-	for package_name in package_file[PackageKeys.PACKAGES].keys():
+	for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
 		emit_signal("operation_checkpoint_reached", package_name)
 		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
 		var package_version := ""
@@ -879,7 +882,10 @@ func dry_run() -> Result:
 	
 	emit_signal("operation_finished")
 
-	hooks.run(self, ValidHooks.POST_DRY_RUN)
+	var post_dry_run_res = hooks.run(self, ValidHooks.POST_DRY_RUN)
+	if typeof(post_dry_run_res) == TYPE_BOOL and post_dry_run_res == false:
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_DRY_RUN)
+		return Result.ok({DryRunValues.OK: true})
 
 	return Result.ok({
 		DryRunValues.OK: packages_to_update.empty() and failed_packages.failed_package_log.empty(),
@@ -907,7 +913,10 @@ func update(force: bool = false) -> Result:
 		return res
 
 	var hooks: Hooks = res.unwrap()
-	hooks.run(self, ValidHooks.PRE_UPDATE)
+	var pre_update_res = hooks.run(self, ValidHooks.PRE_UPDATE)
+	if typeof(pre_update_res) == TYPE_BOOL and pre_update_res == false:
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_UPDATE)
+		return Result.ok()
 
 	var dir := Directory.new()
 	
@@ -915,7 +924,7 @@ func update(force: bool = false) -> Result:
 	
 	# Used for compiling together all errors that may occur
 	var failed_packages := FailedPackages.new()
-	for package_name in package_file[PackageKeys.PACKAGES].keys():
+	for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
 		emit_signal("operation_checkpoint_reached", package_name)
 		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
 		var package_version := ""
@@ -1039,7 +1048,10 @@ func update(force: bool = false) -> Result:
 	
 	emit_signal("operation_finished")
 	
-	hooks.run(self, ValidHooks.POST_UPDATE)
+	var post_update_res = hooks.run(self, ValidHooks.POST_UPDATE)
+	if typeof(post_update_res) == TYPE_BOOL and post_update_res == false:
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_UPDATE)
+		return Result.ok()
 	
 	if failed_packages.has_logs():
 		return Result.err(Error.Code.PROCESS_PACKAGES_FAILURE, failed_packages.get_logs())
@@ -1050,6 +1062,9 @@ func update(force: bool = false) -> Result:
 
 	return Result.ok()
 
+## Remove all packages listed in `godot.lock`
+##
+## @return: Result<()> - The result of the operation
 func purge() -> Result:
 	var res := _read_all_configs()
 	if not res:
@@ -1067,7 +1082,10 @@ func purge() -> Result:
 		return res
 
 	var hooks: Hooks = res.unwrap()
-	hooks.run(self, ValidHooks.PRE_PURGE)
+	var pre_purge_res = hooks.run(self, ValidHooks.PRE_PURGE)
+	if typeof(pre_purge_res) == TYPE_BOOL and pre_purge_res == false:
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_PURGE)
+		return Result.ok()
 
 	var dir := Directory.new()
 
@@ -1086,7 +1104,10 @@ func purge() -> Result:
 	
 	emit_signal("operation_finished")
 
-	hooks.run(self, ValidHooks.POST_PURGE)
+	var post_purge_res = hooks.run(self, ValidHooks.POST_PURGE)
+	if typeof(post_purge_res) == TYPE_BOOL and post_purge_res == false:
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_PURGE)
+		return Result.ok()
 	
 	var keys_to_erase := []
 	for key in lock_file.keys():
