@@ -8,24 +8,10 @@ const TOOLBAR_NAME := "Package Manager"
 
 var main
 
-var gpm: GPM
-
-var num_packages_in_update: int = -1
-
-enum PackageOpts {
-	Status,
-	Update
-}
-const PACKAGES_BUTTON_NAME := "Packages"
-const PURGE_SUBMENU_NAME := "Purge"
-var packages_button: MenuButton
-
-const GPM_IDENTIFIER := "[GPM]"
-var rtl: RichTextLabel
-
 func _enter_tree():
 	main = Main.instance()
 	inject_tool(main)
+	main.plugin = self
 
 	add_control_to_bottom_panel(main, TOOLBAR_NAME)
 

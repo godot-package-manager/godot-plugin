@@ -2,6 +2,19 @@
 	"name": "Godot Package Manager",
 	"packages": {
 		"@sometimes_youwin/advanced-expression": "1.0.0",
-		"@sometimes_youwin/verbal-expressions": "1.0.1"
+		"@sometimes_youwin/verbal-expressions": {
+			"version": "1.0.1",
+			"required_when": {
+				"type": "script_name",
+				"value": "test"
+			}
+		}
+	},
+	"hooks": {},
+	"scripts": {
+		"test": "
+			node.print('hello world')
+			return false
+		"
 	}
 }

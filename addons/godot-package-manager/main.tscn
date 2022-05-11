@@ -20,16 +20,34 @@ margin_bottom = 593.0
 margin_right = 1010.0
 margin_bottom = 20.0
 
-[node name="Status" type="Button" parent="VBoxContainer/HBoxContainer"]
-margin_right = 51.0
+[node name="EditPackage" type="Button" parent="VBoxContainer/HBoxContainer"]
+margin_right = 131.0
 margin_bottom = 20.0
-text = "Status"
+text = "Edit godot.package"
+
+[node name="Status" type="Button" parent="VBoxContainer/HBoxContainer"]
+margin_left = 135.0
+margin_right = 197.0
+margin_bottom = 20.0
+text = "Dry Run"
 
 [node name="Update" type="Button" parent="VBoxContainer/HBoxContainer"]
-margin_left = 55.0
-margin_right = 113.0
+margin_left = 201.0
+margin_right = 259.0
 margin_bottom = 20.0
 text = "Update"
+
+[node name="ForceUpdate" type="Button" parent="VBoxContainer/HBoxContainer"]
+margin_left = 263.0
+margin_right = 360.0
+margin_bottom = 20.0
+text = "Force Update"
+
+[node name="Clear" type="Button" parent="VBoxContainer/HBoxContainer"]
+margin_left = 364.0
+margin_right = 408.0
+margin_bottom = 20.0
+text = "Clear"
 
 [node name="Purge" type="Button" parent="VBoxContainer/HBoxContainer"]
 margin_left = 962.0
