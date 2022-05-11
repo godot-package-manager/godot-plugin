@@ -37,6 +37,7 @@ class Error:
 		#region AdvancedExpression
 
 		MISSING_SCRIPT,
+		BAD_SCRIPT_TYPE,
 		SCRIPT_COMPILE_FAILURE,
 
 		#endregion
@@ -124,6 +125,22 @@ class FailedPackages:
 	
 	func get_failed_packages() -> Array:
 		return failed_packages.duplicate()
+
+class Hooks:
+	var _hooks := {} # Hook name: String -> AdvancedExpression
+
+	func add(hook_name: String, advanced_expression: AdvancedExpression) -> void:
+		_hooks[hook_name] = advanced_expression
+
+	## Runs the given hook if it exists. Requires the containing GPM to be passed
+	## since all scripts assume they have access to a `gpm` variable
+	##
+	## @param: gpm: Object - The containing GPM. Must be a valid `Object`
+	## @param: hook_name: String - The name of the hook to run
+	##
+	## @return: Variant - The return value, if any. Will return `null` if the hook is not found
+	func run(gpm: Object, hook_name: String):
+		return _hooks[hook_name].execute([gpm]) if _hooks.has(hook_name) else null
 
 #region Script/expression handling
 
@@ -338,10 +355,14 @@ class AdvancedExpression:
 
 #endregion
 
+## A message that may be logged at any point during runtime
 signal message_logged(text)
 
+## Signifies the start of a package operation
 signal operation_started(op_name, num_packages)
+## Emitted when a package has started processing
 signal operation_checkpoint_reached(package_name)
+## Emitted when the package operation is complete
 signal operation_finished()
 
 #region Constants
@@ -389,6 +410,17 @@ const NpmManifestKeys := {
 	"DIST": "dist",
 	"INTEGRITY": "integrity",
 	"TARBALL": "tarball"
+}
+
+const ValidHooks := {
+	"PRE_DRY_RUN": "pre_dry_run",
+	"POST_DRY_RUN": "post_dry_run",
+
+	"PRE_UPDATE": "pre_update",
+	"POST_UPDATE": "post_update",
+	
+	"PRE_PURGE": "pre_purge",
+	"POST_PURGE": "post_purge"
 }
 
 #endregion
@@ -592,6 +624,8 @@ static func _remove_dir_recursive(path: String, delete_base_dir: bool = true, fi
 
 #endregion
 
+#region Scripts
+
 static func _clean_text(text: String) -> Result:
 	var whitespace_regex := RegEx.new()
 	whitespace_regex.compile("\\B(\\s+)\\b")
@@ -638,7 +672,7 @@ static func _build_script(text: String) -> Result:
 
 	var split: PoolStringArray = clean_res.unwrap()
 
-	ae.runner.add_param("node")
+	ae.runner.add_param("gpm")
 
 	for line in split:
 		ae.add(line)
@@ -647,6 +681,56 @@ static func _build_script(text: String) -> Result:
 		return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, "_build_script")
 
 	return Result.ok(ae)
+
+## Parse all hooks. Failures cause the entire function to short-circuit
+##
+## @param: data: Dictionary - The entire package dictionary
+##
+## @return: Result<Hooks> - The result of the operation
+static func _parse_hooks(data: Dictionary) -> Result:
+	var hooks := Hooks.new()
+
+	var file_hooks: Dictionary = data.get(PackageKeys.HOOKS, {})
+
+	for key in file_hooks.keys():
+		if not key in ValidHooks.values():
+			printerr("Unrecognized hook %s" % key)
+			continue
+
+		var val = file_hooks[key]
+		match typeof(val):
+			TYPE_ARRAY:
+				var res = _build_script(PoolStringArray(val).join("\n"))
+				if res.is_err():
+					return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
+				hooks.add(key, res.unwrap())
+			TYPE_DICTIONARY:
+				var type = val.get("type", "")
+				var value = val.get("value", "")
+				if type == "script":
+					var res = _build_script(value)
+					if res.is_err():
+						return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
+					hooks.add(key, res.unwrap())
+				elif type == "script_name":
+					if not data[PackageKeys.SCRIPTS].has(value):
+						return Result.err(Error.Code.MISSING_SCRIPT, key)
+					
+					var res = _build_script(data[PackageKeys.SCRIPTS][value])
+					if res.is_err():
+						return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
+					hooks.add(key, res.unwrap())
+				else:
+					return Result.err(Error.Code.BAD_SCRIPT_TYPE, value)
+			_:
+				var res = _build_script(val)
+				if res.is_err():
+					return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
+				hooks.add(key, res.unwrap())
+
+	return Result.ok(hooks)
+
+#endregion
 
 ###############################################################################
 # Public functions                                                            #
@@ -751,6 +835,13 @@ func dry_run() -> Result:
 	var package_file: Dictionary = configs[0]
 	var lock_file: Dictionary = configs[1]
 
+	res = _parse_hooks(package_file)
+	if res.is_err():
+		return res
+
+	var hooks: Hooks = res.unwrap()
+	hooks.run(self, ValidHooks.PRE_DRY_RUN)
+
 	var dir := Directory.new()
 
 	emit_signal("operation_started", "dry run", package_file[PackageKeys.PACKAGES].size())
@@ -788,6 +879,8 @@ func dry_run() -> Result:
 	
 	emit_signal("operation_finished")
 
+	hooks.run(self, ValidHooks.POST_DRY_RUN)
+
 	return Result.ok({
 		DryRunValues.OK: packages_to_update.empty() and failed_packages.failed_package_log.empty(),
 		DryRunValues.UPDATE: packages_to_update,
@@ -808,6 +901,13 @@ func update(force: bool = false) -> Result:
 
 	var package_file: Dictionary = configs[0]
 	var lock_file: Dictionary = configs[1]
+
+	res = _parse_hooks(package_file)
+	if res.is_err():
+		return res
+
+	var hooks: Hooks = res.unwrap()
+	hooks.run(self, ValidHooks.PRE_UPDATE)
 
 	var dir := Directory.new()
 	
@@ -939,6 +1039,8 @@ func update(force: bool = false) -> Result:
 	
 	emit_signal("operation_finished")
 	
+	hooks.run(self, ValidHooks.POST_UPDATE)
+	
 	if failed_packages.has_logs():
 		return Result.err(Error.Code.PROCESS_PACKAGES_FAILURE, failed_packages.get_logs())
 
@@ -960,6 +1062,13 @@ func purge() -> Result:
 	var package_file: Dictionary = configs[0]
 	var lock_file: Dictionary = configs[1]
 
+	res = _parse_hooks(package_file)
+	if res.is_err():
+		return res
+
+	var hooks: Hooks = res.unwrap()
+	hooks.run(self, ValidHooks.PRE_PURGE)
+
 	var dir := Directory.new()
 
 	emit_signal("operation_started", "purge", lock_file.size())
@@ -976,6 +1085,8 @@ func purge() -> Result:
 				continue
 	
 	emit_signal("operation_finished")
+
+	hooks.run(self, ValidHooks.POST_PURGE)
 	
 	var keys_to_erase := []
 	for key in lock_file.keys():

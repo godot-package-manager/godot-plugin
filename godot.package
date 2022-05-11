@@ -10,10 +10,16 @@
 			}
 		}
 	},
-	"hooks": {},
+	"hooks": {
+		"pre_dry_run": "gpm.print('dry run is going to run!')",
+		"pre_update": {
+			"type": "script",
+			"value": "gpm.print('pre update')"
+		}
+	},
 	"scripts": {
 		"test": "
-			node.print('hello world')
+			gpm.print('hello world')
 			return false
 		"
 	}

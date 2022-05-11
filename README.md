@@ -66,10 +66,9 @@ Note: unrecognized fields will be ignored. This can be useful for storing additi
 }
 ```
 
-### Note
-* All scripts and expressions are passed the containing `Node` as `node` as a function parameter. This allows for scripts and expressions to affect the program as a whole.
+### Notes
+* All scripts and expressions are passed the containing `GodotPackageManager` as `gpm` as a function parameter
 * Multi-line strings __are__ supported even though this is technically invalid JSON
-* File paths must be absolute paths (`res://` paths count as absolute paths)
 
 ## `godot.lock`
 Keeps track of currently installed packages.
