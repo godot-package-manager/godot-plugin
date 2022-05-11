@@ -1,4 +1,7 @@
 # Godot Package Manager
+
+[![Chat on Discord](https://img.shields.io/discord/853476898071117865?label=chat&logo=discord)](https://discord.gg/6mcdWWBkrr)
+
 A package manager for Godot 3.x. [NPM](https://www.npmjs.com/) allows for arbitrary
 packages to be uploaded, so why not upload Godot addons there to be automatically
 managed?
