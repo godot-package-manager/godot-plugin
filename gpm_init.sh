@@ -27,6 +27,8 @@ create_folder() {
 
 }
 
+#TBD: Check that file "project.godot" existis in this folder
+
 #Creating directiries for the gpm
 create_folder $dirname
 create_folder $gpm_dir
