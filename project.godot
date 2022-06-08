@@ -13,9 +13,39 @@ _global_script_classes=[ {
 "class": "GPM",
 "language": "GDScript",
 "path": "res://addons/godot-package-manager/godot_package_manager.gd"
+}, {
+"base": "Reference",
+"class": "GPMAdvancedExpression",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/classes/advanced-expression.gd"
+}, {
+"base": "Reference",
+"class": "GPMError",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/classes/error.gd"
+}, {
+"base": "Reference",
+"class": "GPMFailedPackages",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/classes/failed-packages.gd"
+}, {
+"base": "Reference",
+"class": "GPMHooks",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/classes/hooks.gd"
+}, {
+"base": "Reference",
+"class": "GPMResult",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/classes/result.gd"
 } ]
 _global_script_class_icons={
-"GPM": ""
+"GPM": "",
+"GPMAdvancedExpression": "",
+"GPMError": "",
+"GPMFailedPackages": "",
+"GPMHooks": "",
+"GPMResult": ""
 }
 
 [application]
@@ -26,7 +56,7 @@ config/icon="res://icon.png"
 
 [editor_plugins]
 
-enabled=PoolStringArray( "res://addons/godot-package-manager/plugin.cfg" )
+enabled=PoolStringArray(  )
 
 [physics]
 

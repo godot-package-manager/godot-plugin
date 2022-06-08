@@ -1,59 +1,60 @@
 
-class Error:
-	enum Code {
-		NONE = 0,
-		GENERIC,
+class_name GPMError
 
-		#region Http requests
+enum Code {
+    NONE = 0,
+    GENERIC,
 
-		INITIATE_CONNECT_TO_HOST_FAILURE,
-		UNABLE_TO_CONNECT_TO_HOST,
+    #region Http requests
 
-		UNSUCCESSFUL_REQUEST,
-		MISSING_RESPONSE,
-		UNEXPECTED_STATUS_CODE,
+    INITIATE_CONNECT_TO_HOST_FAILURE,
+    UNABLE_TO_CONNECT_TO_HOST,
 
-		GET_REQUEST_FAILURE,
+    UNSUCCESSFUL_REQUEST,
+    MISSING_RESPONSE,
+    UNEXPECTED_STATUS_CODE,
 
-		#endregion
+    GET_REQUEST_FAILURE,
 
-		#region Config
+    #endregion
 
-		FILE_OPEN_FAILURE,
-		PARSE_FAILURE,
-		UNEXPECTED_DATA,
+    #region Config
 
-		NO_PACKAGES,
-		PROCESS_PACKAGES_FAILURE
+    FILE_OPEN_FAILURE,
+    PARSE_FAILURE,
+    UNEXPECTED_DATA,
 
-		REMOVE_PACKAGE_DIR_FAILURE
+    NO_PACKAGES,
+    PROCESS_PACKAGES_FAILURE
 
-		#endregion
+    REMOVE_PACKAGE_DIR_FAILURE
 
-		#region AdvancedExpression
+    #endregion
 
-		MISSING_SCRIPT,
-		BAD_SCRIPT_TYPE,
-		SCRIPT_COMPILE_FAILURE,
+    #region GPMAdvancedExpression
 
-		#endregion
-	}
+    MISSING_SCRIPT,
+    BAD_SCRIPT_TYPE,
+    SCRIPT_COMPILE_FAILURE,
 
-	var _error: int
-	var _description: String
+    #endregion
+}
 
-	func _init(error: int, description: String = "") -> void:
-		_error = error
-		_description = description
-	
-	func _to_string() -> String:
-		return "Code: %d\nName: %s\nDescription: %s" % [_error, error_name(), _description]
+var _error: int
+var _description: String
 
-	func error_code() -> int:
-		return _error
+func _init(error: int, description: String = "") -> void:
+    _error = error
+    _description = description
 
-	func error_name() -> int:
-		return Code.keys()[_error]
+func _to_string() -> String:
+    return "Code: %d\nName: %s\nDescription: %s" % [_error, error_name(), _description]
 
-	func error_description() -> String:
-		return _description
+func error_code() -> int:
+    return _error
+
+func error_name() -> int:
+    return Code.keys()[_error]
+
+func error_description() -> String:
+    return _description
