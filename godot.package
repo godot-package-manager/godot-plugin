@@ -9,7 +9,12 @@
 				"value": "test"
 			}
 		},
-		"@gd-com/utils":""
+		"godot-console": {
+			"src": "github",
+			"url": "https://github.com/quentincaffeino/godot-console.git",
+			"dist": "https://github.com/quentincaffeino/godot-console/archive/refs/tags/v3.5.1.tar.gz",
+			"version": "3.5.1"
+		}
 	},
 	"hooks": {
 		"pre_dry_run": "gpm.print('dry run is going to run!')",
