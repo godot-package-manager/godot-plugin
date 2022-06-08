@@ -533,7 +533,8 @@ func update(force: bool = false) -> GPMResult:
 		
 		var npm_manifest: Dictionary
 		var download_location: String
-		var downloaded_file: PoolByteArray
+		
+		var integrity = ""
 
 		#------------
 		#That's to get link to tarball! Only for NPM
@@ -603,26 +604,31 @@ func update(force: bool = false) -> GPMResult:
 			if not res or res.is_err():
 				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 				continue
-		
+			
+			integrity = npm_manifest["dist"]["integrity"] if npm_manifest["dist"].has("integrity") else ""
 			#endregion
 
+		# Creating directory to store the result
 		if not dir.dir_exists(dir_name):
 			if dir.make_dir_recursive(dir_name) != OK:
 				failed_packages.add(package_name, "Unable to create directory")
 				continue
 		
+		# Unpacking
 		res = GPMUtils.xzf(download_location, dir_name)
 		if not res or res.is_err():
 			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 			continue
 		
+		# Removing cache
 		if dir.remove(download_location) != OK:
 			failed_packages.add(package_name, "Failed to remove tarball")
 			continue
-
+		
+		# Saving lockfile
 		lock_file[package_name] = {
 			LockFileKeys.VERSION: package_version,
-			LockFileKeys.INTEGRITY: npm_manifest["dist"]["integrity"] if npm_manifest["dist"].has("integrity") else ""
+			LockFileKeys.INTEGRITY: integrity
 		}
 		print("3")
 	emit_signal("operation_finished")
