@@ -6,15 +6,14 @@ signal message_logged(text)
 
 ## Signifies the start of a package operation
 signal operation_started(op_name, num_packages)
-
 ## Emitted when a package has started processing
 signal operation_checkpoint_reached(package_name)
-
 ## Emitted when the package operation is complete
 signal operation_finished()
 
 #region Constants
 
+const REGISTRY := "https://registry.npmjs.org"
 const ADDONS_DIR_FORMAT := "res://addons/%s"
 
 const DryRunValues := {
@@ -23,7 +22,19 @@ const DryRunValues := {
 	"INVALID": "packages_with_errors"
 }
 
+const CONNECTING_STATUS := [
+	HTTPClient.STATUS_CONNECTING,
+	HTTPClient.STATUS_RESOLVING
+]
+const SUCCESS_STATUS := [
+	HTTPClient.STATUS_BODY,
+	HTTPClient.STATUS_CONNECTED,
+]
 
+const HEADERS := [
+	"User-Agent: GodotPackageManager/1.0 (you-win on GitHub)",
+	"Accept: */*"
+]
 
 const PACKAGE_FILE := "godot.package"
 const PackageKeys := {
@@ -35,10 +46,16 @@ const PackageKeys := {
 	"OPTIONAL_WHEN": "optional_when"
 }
 const LOCK_FILE := "godot.lock"
-
 const LockFileKeys := {
 	"VERSION": "version",
 	"INTEGRITY": "integrity"
+}
+
+const NpmManifestKeys := {
+	"VERSION": "version",
+	"DIST": "dist",
+	"INTEGRITY": "integrity",
+	"TARBALL": "tarball"
 }
 
 const ValidHooks := {
@@ -66,9 +83,203 @@ const ValidHooks := {
 # Private functions                                                           #
 ###############################################################################
 
+## Reads all relevant config files
+## Empty or missing configs are not considered errors
+##
+## @return: GPMResult<Tuple<Dictionary, Dictionary>> - A tuple-like structure containing the relevant files
+static func _read_all_configs() -> GPMResult:
+	var package_file := {}
 
+	var res := read_config(PACKAGE_FILE)
+	if res.is_ok():
+		package_file = res.unwrap()
 
+	var lock_file := {}
+	
+	res = read_config(LOCK_FILE)
+	if res.is_ok():
+		lock_file = res.unwrap()
 
+	return GPMUtils.OK([package_file, lock_file])
+
+static func _save_data(data: PoolByteArray, path: String) -> GPMResult:
+	var file := File.new()
+	if file.open(path, File.WRITE) != OK:
+		return GPMUtils.ERR(GPMError.Code.FILE_OPEN_FAILURE, path)
+
+	file.store_buffer(data)
+
+	file.close()
+	
+	return GPMUtils.OK()
+
+static func _is_valid_new_package(lock_file: Dictionary, npm_manifest: Dictionary) -> bool:
+	if lock_file.get(LockFileKeys.VERSION, "") == npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__"):
+		return false
+
+	if lock_file.get(LockFileKeys.INTEGRITY, "") == npm_manifest.get(NpmManifestKeys.DIST, {}).get(NpmManifestKeys.INTEGRITY, "__MISSING__"):
+		return false
+
+	return true
+
+#region REST
+
+## Send a GET request to a given host/path
+##
+## @param: host: String - The host to connect to
+## @param: path: String - The host path
+##
+## @return: GPMResult[PoolByteArray] - The response body
+static func _send_get_request(host: String, path: String) -> GPMResult:
+	var http := HTTPClient.new()
+
+	var err := http.connect_to_host(host, 443, true)
+	if err != OK:
+		return GPMUtils.ERR(GPMError.Code.CONNECT_TO_HOST_FAILURE, host)
+
+	while http.get_status() in CONNECTING_STATUS:
+		http.poll()
+		yield(Engine.get_main_loop(), "idle_frame")
+
+	if http.get_status() != HTTPClient.STATUS_CONNECTED:
+		return GPMUtils.ERR(GPMError.Code.UNABLE_TO_CONNECT_TO_HOST, host)
+
+	err = http.request(HTTPClient.METHOD_GET, "/%s" % path, HEADERS)
+	if err != OK:
+		return GPMUtils.ERR(GPMError.Code.GET_REQUEST_FAILURE, path)
+
+	while http.get_status() == HTTPClient.STATUS_REQUESTING:
+		http.poll()
+		yield(Engine.get_main_loop(), "idle_frame")
+
+	if not http.get_status() in SUCCESS_STATUS:
+		return GPMUtils.ERR(GPMError.Code.UNSUCCESSFUL_REQUEST, path)
+	
+	if http.get_response_code() == 302:
+		var location = http.get_response_headers_as_dictionary()["Location"]
+		var host_loc = "https://" + location.replace("https://", "").split("/")[0]
+		var path_loc = location.replace(host_loc, "")
+		print("Loc: ", location, " || ", host_loc, " || ", path_loc)
+		
+		return yield(_send_get_request("https://"+host_loc, path_loc), "completed")
+	
+
+	if http.get_response_code() != 200:
+		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_STATUS_CODE, "%s - %d" % [path, http.get_response_code()])
+
+	var body := PoolByteArray()
+
+	while http.get_status() == HTTPClient.STATUS_BODY:
+		http.poll()
+
+		var chunk := http.read_response_body_chunk()
+		if chunk.size() == 0:
+			yield(Engine.get_main_loop(), "idle_frame")
+		else:
+			body.append_array(chunk)
+
+	return GPMUtils.OK(body)
+
+static func _request_npm_manifest(package_name: String, package_version: String) -> GPMResult:
+	var res = yield(_send_get_request(REGISTRY, "%s/%s" % [package_name, package_version]), "completed")
+	if res.is_err():
+		return res
+
+	var body: String = res.unwrap().get_string_from_utf8()
+	var parse_res := JSON.parse(body)
+	if parse_res.error != OK or not parse_res.result is Dictionary:
+		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_DATA, "%s - Unexpected json" % package_name)
+
+	var npm_manifest: Dictionary = parse_res.result
+
+	if not npm_manifest.has("dist"):
+		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields" % package_name)
+	elif not npm_manifest["dist"].has("tarball"):
+		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields tarball" % package_name)
+
+	return GPMUtils.OK(npm_manifest)
+
+#endregion
+
+#region Directory utils
+
+## Recursively finds all files in a directory. Nested directories are represented by further dicts
+##
+## @param: original_path: String - The absolute, root path of the directory. Used to strip out the full path
+## @param: path: String - The current, absoulute search path
+##
+## @return: Dictionary<Dictionary> - The files + directories in the current `path`
+##
+## @example: original_path: /my/path/to/
+##	{
+##		"nested": {
+##			"hello.gd": "/my/path/to/nested/hello.gd"
+##		},
+##		"file.gd": "/my/path/to/file.gd"
+###	}
+static func _get_files_recursive_inner(original_path: String, path: String) -> Dictionary:
+	var r := {}
+	
+	var dir := Directory.new()
+	if dir.open(path) != OK:
+		printerr("Failed to open directory path: %s" % path)
+		return r
+	
+	dir.list_dir_begin(true, false)
+	
+	var file_name := dir.get_next()
+	
+	while file_name != "":
+		var full_path := dir.get_current_dir().plus_file(file_name)
+		if dir.current_is_dir():
+			r[path.replace(original_path, "").plus_file(file_name)] = _get_files_recursive_inner(original_path, full_path)
+		else:
+			r[file_name] = full_path
+		
+		file_name = dir.get_next()
+	
+	return r
+
+## Wrapper for _get_files_recursive(..., ...) omitting the `original_path` arg.
+##
+## @param: path: String - The path to search
+##
+## @return: Dictionary<Dictionary> - A recursively `Dictionary` of all files found at `path`
+static func _get_files_recursive(path: String) -> Dictionary:
+	return _get_files_recursive_inner(path, path)
+
+## Removes a directory recursively
+##
+## @param: path: String - The path to remove
+## @param: delete_base_dir: bool - Whether to remove the root directory at path as well
+## @param: file_dict: Dictionary - The result of `_get_files_recursive` if available
+##
+## @return: int - The error code
+static func _remove_dir_recursive(path: String, delete_base_dir: bool = true, file_dict: Dictionary = {}) -> int:
+	var files := _get_files_recursive(path) if file_dict.empty() else file_dict
+	
+	var dir := Directory.new()
+	
+	for key in files.keys():
+		var file_path: String = path.plus_file(key)
+		var val = files[key]
+		
+		if val is Dictionary:
+			if _remove_dir_recursive(file_path, false) != OK:
+				printerr("Unable to remove_dir_recursive")
+				return ERR_BUG
+		
+		if dir.remove(file_path) != OK:
+			printerr("Unable to remove file at path: %s" % file_path)
+			return ERR_BUG
+	
+	if delete_base_dir and dir.remove(path) != OK:
+		printerr("Unable to remove file at path: %s" % path)
+		return ERR_BUG
+	
+	return OK
+
+#endregion
 
 #region Scripts
 
@@ -250,6 +461,9 @@ static func write_config(file_name: String, data: Dictionary) -> GPMResult:
 
 #endregion
 
+func print(text: String) -> void:
+	print(text)
+	emit_signal("message_logged", text)
 
 ## Reads the config files and returns the operation that would have been taken for each package
 ##
@@ -344,14 +558,11 @@ func update(force: bool = false) -> GPMResult:
 		return res
 
 	var hooks: GPMHooks = res.unwrap()
-
-	# Running preupdate hooks
 	var pre_update_res = hooks.run(self, ValidHooks.PRE_UPDATE)
 	if typeof(pre_update_res) == TYPE_BOOL and pre_update_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_UPDATE)
 		return GPMUtils.OK()
-	
-	
+
 	var dir := Directory.new()
 	
 	emit_signal("operation_started", "update", package_file[PackageKeys.PACKAGES].size())
