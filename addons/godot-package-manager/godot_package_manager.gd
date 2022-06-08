@@ -15,6 +15,8 @@ signal operation_finished()
 
 
 const ADDONS_DIR_FORMAT := "res://addons/%s"
+const ADDONS_DIR_FORMAT_CACHE := "res://addons/.cache/%s"
+
 
 const DryRunValues := {
 	"OK": "ok",
@@ -542,12 +544,12 @@ func update(force: bool = false) -> GPMResult:
 		if (data is Dictionary) and (data.has("src")):
 			if data["src"] == "github":
 				emit_signal("message_logged", "Processing github")
-				download_location = ADDONS_DIR_FORMAT % data["filename"]
+				download_location = ADDONS_DIR_FORMAT_CACHE % data["filename"]
 				download_link = data["url"]
 				GPMUtils.wget(data["dist"], download_location)
 			elif data["src"] == "git":
 				emit_signal("message_logged", "Processing git")
-				download_location = ADDONS_DIR_FORMAT.replace("res://", "./") % package_name
+				download_location = ADDONS_DIR_FORMAT_CACHE.replace("res://", "./") % package_name
 				
 				GPMUtils.clone(data["url"], download_location)
 		else:
@@ -558,8 +560,10 @@ func update(force: bool = false) -> GPMResult:
 				continue
 
 			npm_manifest = res.unwrap()
+			
+			download_link = npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL]
 
-			download_location = ADDONS_DIR_FORMAT % npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].get_file()
+			download_location = ADDONS_DIR_FORMAT_CACHE % download_link.get_file()
 			
 			#------------
 			# Check against lockfile and determine whether to continue or not
@@ -576,7 +580,7 @@ func update(force: bool = false) -> GPMResult:
 					failed_packages.add(package_name, "Unable to remove old files")
 					continue
 			
-			download_link = npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL]
+			
 			#region Download tarball
 			res = GPMHttp.download(download_link, download_location)
 			
