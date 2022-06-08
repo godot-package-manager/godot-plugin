@@ -87,7 +87,6 @@ func _on_message_logged(text: String) -> void:
 #region Update
 
 func _on_operation_started(operation: String, num_packages: int) -> void:
-	print("alskjdalskjdlaksjdlkasjdlkjkl")
 	_log("Running %s for %d packages" % [operation, num_packages])
 
 func _on_operation_checkpoint_reached(package_name: String) -> void:
@@ -101,8 +100,9 @@ func _on_update_finished() -> void:
 # Private functions                                                           #
 ###############################################################################
 
-func _log(text: String) -> void:
+func _log(text) -> void:
 	print(text)
+
 
 ###############################################################################
 # Public functions                                                            #
