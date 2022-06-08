@@ -17,7 +17,17 @@
 			"version": "3.5.1",
 			"filename": "v3.5.1.tar.gz",
 			"integrity": ""
-		}
+		},
+		"godot-package-manager": {
+			"src": "github",
+			"url": "https://github.com/LunCoSim/godot-package-manager.git",
+			"dist": "https://github.com/LunCoSim/godot-package-manager/archive/refs/tags/v0.2.3.tar.gz",
+		
+			"version": "0.2.3",
+			"filename": "v0.2.3.tar.gz",
+			"integrity": ""
+		},
+
 	},
 	"hooks": {
 		"pre_dry_run": "gpm.print('dry run is going to run!')",
