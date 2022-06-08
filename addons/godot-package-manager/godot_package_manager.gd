@@ -154,6 +154,15 @@ static func _send_get_request(host: String, path: String) -> GPMResult:
 
 	if not http.get_status() in SUCCESS_STATUS:
 		return GPMUtils.ERR(GPMError.Code.UNSUCCESSFUL_REQUEST, path)
+	
+	if http.get_response_code() == 302:
+		var location = http.get_response_headers_as_dictionary()["Location"]
+		var host_loc = "https://" + location.replace("https://", "").split("/")[0]
+		var path_loc = location.replace(host_loc, "")
+		print("Loc: ", location, " || ", host_loc, " || ", path_loc)
+		
+		return yield(_send_get_request("https://"+host_loc, path_loc), "completed")
+	
 
 	if http.get_response_code() != 200:
 		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_STATUS_CODE, "%s - %d" % [path, http.get_response_code()])
@@ -636,16 +645,17 @@ func update(force: bool = false) -> GPMResult:
 		#That's to get link to tarball! Only for NPM
 		if (data is Dictionary) and (data.has("src")):
 			emit_signal("message_logged", "Processing gihub")
-			continue
-		else:
-			emit_signal("message_logged", "Processing npm")
-			res = yield(_request_npm_manifest(package_name, package_version), "completed")
+			npm_manifest[NpmManifestKeys.DIST] = {}
+			npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL] = data["dist"]
+			
+			#region Download tarball
+			var hostname = GPMUtils.hostname(data["dist"])
+			var path = GPMUtils.path(data["dist"])
+			res = yield(_send_get_request(hostname, path), "completed")
 			if not res or res.is_err():
 				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 				continue
-
-			npm_manifest = res.unwrap()
-
+			
 			# Check against lockfile and determine whether to continue or not
 			# If the directory does not exist, there's no need to do addtional checks
 			if dir.dir_exists(dir_name):
@@ -660,23 +670,49 @@ func update(force: bool = false) -> GPMResult:
 					failed_packages.add(package_name, "Unable to remove old files")
 					continue
 
+			download_location = ADDONS_DIR_FORMAT % data["filename"]
+			
+			GPMUtils.wget(data["dist"],download_location)
+		else:
+			emit_signal("message_logged", "Processing npm")
+			res = yield(_request_npm_manifest(package_name, package_version), "completed")
+			if not res or res.is_err():
+				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
+				continue
+
+			npm_manifest = res.unwrap()
+
 			download_location = ADDONS_DIR_FORMAT % npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].get_file()
+			
+			#------------
+			# Check against lockfile and determine whether to continue or not
+			# If the directory does not exist, there's no need to do addtional checks
+			if dir.dir_exists(dir_name):
+				if not force:
+					if lock_file.has(package_name) and \
+							not _is_valid_new_package(lock_file[package_name], npm_manifest):
+						emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" %
+								[package_name, package_name])
+						continue
+
+				if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
+					failed_packages.add(package_name, "Unable to remove old files")
+					continue
+					
+			#region Download tarball
+			res = yield(_send_get_request(REGISTRY, npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].replace(REGISTRY, "")), "completed")
+			if not res or res.is_err():
+				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
+				continue
+
 			downloaded_file = res.unwrap()
-		#------------
-
-		#region Download tarball
-
-		res = yield(_send_get_request(REGISTRY, npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].replace(REGISTRY, "")), "completed")
-		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
-			continue
-
+			print("download_location")
+			print(download_location, " ", dir_name)
+			res = _save_data(downloaded_file, download_location)
+			if not res or res.is_err():
+				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
+				continue
 		
-		res = _save_data(downloaded_file, download_location)
-		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
-			continue
-
 		#endregion
 
 		if not dir.dir_exists(dir_name):
@@ -695,9 +731,9 @@ func update(force: bool = false) -> GPMResult:
 
 		lock_file[package_name] = {
 			LockFileKeys.VERSION: package_version,
-			LockFileKeys.INTEGRITY: npm_manifest["dist"]["integrity"]
+			LockFileKeys.INTEGRITY: npm_manifest["dist"]["integrity"] if npm_manifest["dist"].has("integrity") else ""
 		}
-	
+		print("3")
 	emit_signal("operation_finished")
 	
 	var post_update_res = hooks.run(self, ValidHooks.POST_UPDATE)
