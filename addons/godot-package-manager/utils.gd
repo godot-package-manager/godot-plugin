@@ -104,6 +104,31 @@ static func rm(file_path: String) -> GPMResult:
 	
 	return OK()
 
+## Git clone 
+##
+## @param: file_path: String - The relative file path to a tar file
+## @param: output_path: String - The file path to extract to
+##
+## @return: GPMResult[] - The result of the operation
+static func clone(file_path: String, output_path: String) -> GPMResult:
+
+	var _output := []
+
+	OS.execute(
+		"git",
+		[
+			"clone",
+			"--depth", 
+			"1",
+			file_path,
+			output_path
+		],
+		true,
+		_output
+	)
+	print("Clone: ", file_path, " || ", output_path, " || ", _output)
+	return OK()
+	
 ## Get's hostname from url
 ##
 ## @param: url: String - The relative file path to a tar file

@@ -17,7 +17,14 @@
 			"version": "3.5.1",
 			"filename": "v3.5.1.tar.gz",
 			"integrity": ""
+		},
+		"lunco-content": {
+			"src": "git",
+			"url": "git@github.com:LunCoSim/lunco-content.git",
+			"version": "0.0.0",
+			"filename": "v0.0.0.tar.gz",
 		}
+
 	},
 	"hooks": {
 		"pre_dry_run": "gpm.print('dry run is going to run!')",
