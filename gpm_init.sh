@@ -9,7 +9,7 @@ gpm_url="https://raw.githubusercontent.com/LunCoSim/godot-package-manager"
 package_file_url="https://raw.githubusercontent.com/you-win/godot-package-manager/master/godot.package"
 branch="master"
 
-gpm_files=( "godot_package_manager.gd" "main.gd" "main.tscn" "plugin.cfg" "plugin.gd" )
+gpm_files=( "godot_package_manager.gd" "main.gd" "main.tscn" "plugin.cfg" "plugin.gd" "utils.gd" "gpm.gd" "classes/advanced-expression.gd" "classes/error.gd" "classes/failed-packages.gd" "classes/hooks.gd" "classes/result.gd" )
 
 create_folder() {
     folder = $1
@@ -38,7 +38,20 @@ for i in "${gpm_files[@]}"
 do
 	file=$gpm_url"/"$branch"/"$gpm_dir"/"$i
     echo "Starting to download: "$file
-    wget $file -P ./$gpm_dir
+    dir_to_save=./$gpm_dir
+
+    #splitting file to get folders
+    IFS='/' read -ra folders <<< "$i"
+    
+    for folder in "${folders[@]::${#folders[@]}-1}"
+    do
+        dir_to_save=$dir_to_save/$folder
+    done
+
+    echo "Folders: "${#folders[@]}
+    echo $dir_to_save
+
+    wget $file -P $dir_to_save
 done
 
 #Downloading godot.package
