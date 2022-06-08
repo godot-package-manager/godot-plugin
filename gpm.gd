@@ -3,6 +3,8 @@
 #Must inherit from SceneTree according to https://docs.godotengine.org/en/latest/tutorials/editor/command_line_tutorial.html#running-a-script
 extends SceneTree
 
+signal finished
+
 const GPM_PATH = "addons/godot-package-manager/"
 const GPM_MAIN_SCRIPT = "godot_package_manager.gd"
 const GPM_CONFIG = "godot.package"
@@ -21,7 +23,8 @@ func _init():
 	#Separate main function should simplify
 	main()
 	_log("** Exiting! Bye bye")
-	quit()
+	
+	
 
 
 func main():
@@ -29,9 +32,8 @@ func main():
 	_log("TBD: parse arguments")
 	var res = gpm.read_config(GPM_CONFIG)
 	_log(res)
-	_log(gpm.dry_run()._to_string())
-
-
+	gpm.update()
+	
 
 #-------
 
@@ -97,6 +99,7 @@ func _on_operation_checkpoint_reached(package_name: String) -> void:
 func _on_update_finished() -> void:
 	_log("_on_update_finished")
 	_log("Finished")
+	quit()
 
 ###############################################################################
 # Private functions                                                           #
