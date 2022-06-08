@@ -533,44 +533,22 @@ func update(force: bool = false) -> GPMResult:
 		
 		var npm_manifest: Dictionary
 		var download_location: String
-		
+		var download_link: String
+
 		var integrity = ""
 
 		#------------
 		#That's to get link to tarball! Only for NPM
 		if (data is Dictionary) and (data.has("src")):
 			if data["src"] == "github":
-				emit_signal("message_logged", "Processing gihub")
-				npm_manifest[NpmManifestKeys.DIST] = {}
-				npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL] = data["dist"]
-				
-				#region Download tarball
-				
-				res = yield(GPMHttp.send_get_request(data["dist"]), "completed")
-				if not res or res.is_err():
-					failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
-					continue
-				
-				# Check against lockfile and determine whether to continue or not
-				# If the directory does not exist, there's no need to do addtional checks
-				if dir.dir_exists(dir_name):
-					if not force:
-						if lock_file.has(package_name) and \
-								not _is_valid_new_package(lock_file[package_name], npm_manifest):
-							emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" %
-									[package_name, package_name])
-							continue
-
-					if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
-						failed_packages.add(package_name, "Unable to remove old files")
-						continue
-
+				emit_signal("message_logged", "Processing github")
 				download_location = ADDONS_DIR_FORMAT % data["filename"]
-				
+				download_link = data["url"]
 				GPMUtils.wget(data["dist"], download_location)
 			elif data["src"] == "git":
-				print("processing git")
+				emit_signal("message_logged", "Processing git")
 				download_location = ADDONS_DIR_FORMAT.replace("res://", "./") % package_name
+				
 				GPMUtils.clone(data["url"], download_location)
 		else:
 			emit_signal("message_logged", "Processing npm")
@@ -598,8 +576,9 @@ func update(force: bool = false) -> GPMResult:
 					failed_packages.add(package_name, "Unable to remove old files")
 					continue
 			
+			download_link = npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL]
 			#region Download tarball
-			res = GPMHttp.download(npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL], download_location)
+			res = GPMHttp.download(download_link, download_location)
 			
 			if not res or res.is_err():
 				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
@@ -615,15 +594,16 @@ func update(force: bool = false) -> GPMResult:
 				continue
 		
 		# Unpacking
-		res = GPMUtils.xzf(download_location, dir_name)
-		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
-			continue
+		if download_link:
+			res = GPMUtils.xzf(download_location, dir_name)
+			if not res or res.is_err():
+				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
+				continue
 		
-		# Removing cache
-		if dir.remove(download_location) != OK:
-			failed_packages.add(package_name, "Failed to remove tarball")
-			continue
+			# Removing cache
+			if dir.remove(download_location) != OK:
+				failed_packages.add(package_name, "Failed to remove tarball")
+				continue
 		
 		# Saving lockfile
 		lock_file[package_name] = {
