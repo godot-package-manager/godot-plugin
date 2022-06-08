@@ -191,8 +191,10 @@ static func _request_npm_manifest(package_name: String, package_version: String)
 
 	var npm_manifest: Dictionary = parse_res.result
 
-	if not npm_manifest.has("dist") and not npm_manifest["dist"].has("tarball"):
+	if not npm_manifest.has("dist"):
 		return ERR(GPMError.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields" % package_name)
+	elif not npm_manifest["dist"].has("tarball"):
+		return ERR(GPMError.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields tarball" % package_name)
 
 	return OK(npm_manifest)
 
