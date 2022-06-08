@@ -1,358 +1,40 @@
-extends Reference
 class_name GPM
+extends Reference
+
+const GPM_PATH = "res://addons/godot-package-manager/classes/"
+const ERROR = "error.gd"
+const ERROR_PATH = GPM_PATH + ERROR
+
+const RESULT = "result.gd"
+const RESULT_PATH = GPM_PATH + RESULT
+
+const ADVANCED_EXPRESSION = "advanced-expression.gd"
+const ADVANCED_EXPRESSION_PATH = GPM_PATH + ADVANCED_EXPRESSION
+
+const HOOKS = "hooks.gd"
+const HOOKS_PATH = GPM_PATH + HOOKS
+
+const FAILED_PACKAGES = "failed-packages.gd"
+const FAILED_PACKAGES_PATH = GPM_PATH + FAILED_PACKAGES
 
 #region Error handling
 
 const DEFAULT_ERROR := "Default error"
-class Error:
-	enum Code {
-		NONE = 0,
-		GENERIC,
 
-		#region Http requests
+const Error = preload(ERROR_PATH)
+const Result = preload(RESULT_PATH)
 
-		INITIATE_CONNECT_TO_HOST_FAILURE,
-		UNABLE_TO_CONNECT_TO_HOST,
+const AdvancedExpression = preload(ADVANCED_EXPRESSION_PATH)
 
-		UNSUCCESSFUL_REQUEST,
-		MISSING_RESPONSE,
-		UNEXPECTED_STATUS_CODE,
-
-		GET_REQUEST_FAILURE,
-
-		#endregion
-
-		#region Config
-
-		FILE_OPEN_FAILURE,
-		PARSE_FAILURE,
-		UNEXPECTED_DATA,
-
-		NO_PACKAGES,
-		PROCESS_PACKAGES_FAILURE
-
-		REMOVE_PACKAGE_DIR_FAILURE
-
-		#endregion
-
-		#region AdvancedExpression
-
-		MISSING_SCRIPT,
-		BAD_SCRIPT_TYPE,
-		SCRIPT_COMPILE_FAILURE,
-
-		#endregion
-	}
-
-	var _error: int
-	var _description: String
-
-	func _init(error: int, description: String = "") -> void:
-		_error = error
-		_description = description
-	
-	func _to_string() -> String:
-		return "Code: %d\nName: %s\nDescription: %s" % [_error, error_name(), _description]
-
-	func error_code() -> int:
-		return _error
-
-	func error_name() -> int:
-		return Code.keys()[_error]
-
-	func error_description() -> String:
-		return _description
-
-class Result:
-	var _value
-	var _error: Error
-
-	func _init(v) -> void:
-		if not v is Error:
-			_value = v
-		else:
-			_error = v
-
-	func _to_string() -> String:
-		if is_err():
-			return "ERR: %s" % str(_error)
-		else:
-			return "OK: %s" % str(_value)
-
-	func is_ok() -> bool:
-		return not is_err()
-
-	func is_err() -> bool:
-		return _error != null
-
-	func unwrap():
-		return _value
-
-	func unwrap_err() -> Error:
-		return _error
-
-	func expect(text: String):
-		if is_err():
-			printerr(text)
-			return null
-		return _value
-
-	func or_else(val):
-		return _value if is_ok() else val
-
-	static func ok(v = null) -> Result:
-		var res = Result.new(OK)
-		return Result.new(v if v != null else OK)
-
-	static func err(error_code: int = 1, description: String = "") -> Result:
-		return Result.new(Error.new(error_code, description))
+const Hooks = preload(HOOKS_PATH)
+const FailedPackages = preload(FAILED_PACKAGES_PATH)
 
 #endregion
 
-class FailedPackages:
-	var failed_package_log := [] # Log of failed packages and reasons
-	var failed_packages := [] # Array of failed package names only
-
-	func add(package_name: String, reason: String) -> void:
-		failed_package_log.append("%s - %s" % [package_name, reason])
-		failed_packages.append(package_name)
-
-	func get_logs() -> String:
-		failed_package_log.invert()
-		return PoolStringArray(failed_package_log).join("\n")
-
-	func has_logs() -> bool:
-		return not failed_package_log.empty()
-	
-	func get_failed_packages() -> Array:
-		return failed_packages.duplicate()
-
-class Hooks:
-	var _hooks := {} # Hook name: String -> AdvancedExpression
-
-	func add(hook_name: String, advanced_expression: AdvancedExpression) -> void:
-		_hooks[hook_name] = advanced_expression
-
-	## Runs the given hook if it exists. Requires the containing GPM to be passed
-	## since all scripts assume they have access to a `gpm` variable
-	##
-	## @param: gpm: Object - The containing GPM. Must be a valid `Object`
-	## @param: hook_name: String - The name of the hook to run
-	##
-	## @return: Variant - The return value, if any. Will return `null` if the hook is not found
-	func run(gpm: Object, hook_name: String):
-		return _hooks[hook_name].execute([gpm]) if _hooks.has(hook_name) else null
 
 #region Script/expression handling
 
-class AdvancedExpression:
-	class AbstractCode:
-		var _cache := []
-		
-		func _to_string() -> String:
-			return "%s\n%s" % [_get_name(), output()]
-		
-		func _get_name() -> String:
-			return "AbstractCode"
-		
-		static func _build_string(list: Array) -> String:
-			return PoolStringArray(list).join("")
-		
-		func tab(times: int = 1) -> AbstractCode:
-			for i in times:
-				_cache.append("\t")
-			return self
-		
-		func newline() -> AbstractCode:
-			_cache.append("\n")
-			return self
-		
-		func add(text) -> AbstractCode:
-			match typeof(text):
-				TYPE_STRING:
-					tab()
-					_cache.append(text)
-					newline()
-				TYPE_ARRAY:
-					_cache.append_array(text)
-				_:
-					push_error("Invalid type for add: %s" % str(text))
-			
-			return self
-		
-		func clear_cache() -> AbstractCode:
-			_cache.clear()
-			return self
-		
-		func output() -> String:
-			return _build_string(_cache)
-		
-		func raw_data() -> Array:
-			return _cache
 
-	class Variable extends AbstractCode:
-		func _init(var_name: String, var_value: String = "") -> void:
-			_cache.append("var %s = " % var_name)
-			if not var_value.empty():
-				_cache.append(var_value)
-		
-		func _get_name() -> String:
-			return "Variable"
-		
-		func add(text) -> AbstractCode:
-			_cache.append(str(text))
-			
-			return self
-		
-		func output() -> String:
-			return "%s\n" % .output()
-
-	class AbstractFunction extends AbstractCode:
-		var _function_def := ""
-		var _params := []
-		
-		func _get_name() -> String:
-			return "AbstractFunction"
-		
-		func _construct_params() -> String:
-			var params := []
-			params.append("(")
-			
-			for i in _params:
-				params.append(i)
-				params.append(",")
-			
-			# Remove the last comma
-			if params.size() > 1:
-				params.pop_back()
-			
-			params.append(")")
-			
-			return PoolStringArray(params).join("") if not params.empty() else ""
-		
-		func add_param(text: String) -> AbstractFunction:
-			if _params.has(text):
-				push_error("Tried to add duplicate param %s" % text)
-			else:
-				_params.append(text)
-			
-			return self
-		
-		func output() -> String:
-			var params = _construct_params()
-			var the_rest = _build_string(_cache)
-			return "%s%s" % [_function_def % _construct_params(), _build_string(_cache)]
-
-	class Function extends AbstractFunction:
-		func _init(text: String) -> void:
-			_function_def = "func %s%s:" % [text, "%s"]
-			# Always add a newline into the cache
-			newline()
-		
-		func _get_name() -> String:
-			return "Function"
-
-	class Runner extends AbstractFunction:
-		func _init() -> void:
-			_function_def = "func %s%s:" % [RUN_FUNC, "%s"]
-			# Always add a newline into the cache
-			newline()
-		
-		func _get_name() -> String:
-			return "Runner"
-
-	const RUN_FUNC := "__runner__"
-
-	var variables := []
-	var functions := []
-	var runner := Runner.new()
-
-	var gdscript: GDScript
-	
-	func _to_string() -> String:
-		return _build_source(variables, functions, runner)
-	
-	static func _build_source(v: Array, f: Array, r: Runner) -> String:
-		var source := ""
-		
-		for i in v:
-			source += i.output()
-		
-		for i in f:
-			source += i.output()
-		
-		source += r.output()
-		
-		return source
-
-	static func _create_script(v: Array, f: Array, r: Runner) -> GDScript:
-		var s := GDScript.new()
-		
-		var source := ""
-		
-		for i in v:
-			source += i.output()
-		
-		for i in f:
-			source += i.output()
-		
-		source += r.output()
-		
-		s.source_code = source
-		
-		return s
-	
-	func add_variable(variable_name: String, variable_value: String = "") -> Variable:
-		var variable := Variable.new(variable_name, variable_value)
-		
-		variables.append(variable)
-		
-		return variable
-
-	func add_function(function_name: String) -> Function:
-		var function := Function.new(function_name)
-		
-		functions.append(function)
-		
-		return function
-
-	func add(text: String = "") -> Runner:
-		if not text.empty():
-			runner.add(text)
-		
-		return runner
-
-	func add_raw(text: String) -> Runner:
-		var split := text.split(";")
-		for i in split:
-			runner.add(i)
-		
-		return runner
-
-	func tab(amount: int = 1) -> Runner:
-		runner.tab(amount)
-		
-		return runner
-
-	func newline() -> Runner:
-		runner.newline()
-		
-		return runner
-
-	func compile() -> int:
-		gdscript = _create_script(variables, functions, runner)
-		
-		return gdscript.reload()
-
-	func execute(params: Array = []):
-		return gdscript.new().callv(RUN_FUNC, params)
-
-	func clear() -> void:
-		gdscript = null
-		
-		variables.clear()
-		functions.clear()
-		runner = Runner.new()
 
 #endregion
 

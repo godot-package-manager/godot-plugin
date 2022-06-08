@@ -11,10 +11,12 @@ var gpm: GPM = load("res://"+GPM_PATH+GPM_MAIN_SCRIPT).new()
 
 func _init():
 	#connecting signals
-	gpm.connect("operation_started", self, "_on_operation_started")
-	gpm.connect("message_logged", self, "_on_message_logged")
-	gpm.connect("operation_checkpoint_reached", self, "_on_operation_checkpoint_reached")
-	gpm.connect("operation_finished", self, "_on_update_finished")
+	var _connect_res = null
+
+	_connect_res = gpm.connect("operation_started", self, "_on_operation_started")
+	_connect_res = gpm.connect("message_logged", self, "_on_message_logged")
+	_connect_res = gpm.connect("operation_checkpoint_reached", self, "_on_operation_checkpoint_reached")
+	_connect_res = gpm.connect("operation_finished", self, "_on_update_finished")
 	
 	#Separate main function should simplify
 	main()
@@ -27,7 +29,7 @@ func main():
 	_log("TBD: parse arguments")
 	var res = gpm.read_config(GPM_CONFIG)
 	_log(res)
-	gpm.dry_run()
+	_log(gpm.dry_run()._to_string())
 
 
 

@@ -8,6 +8,16 @@
 
 config_version=4
 
+_global_script_classes=[ {
+"base": "Reference",
+"class": "GPM",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/godot_package_manager.gd"
+} ]
+_global_script_class_icons={
+"GPM": ""
+}
+
 [application]
 
 config/name="Godot Package Manager"
