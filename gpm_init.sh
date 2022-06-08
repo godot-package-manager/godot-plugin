@@ -9,6 +9,9 @@ gpm_url="https://raw.githubusercontent.com/LunCoSim/godot-package-manager"
 package_file_url="https://raw.githubusercontent.com/LunCoSim/godot-package-manager/master/godot.package"
 exec_file_url="https://raw.githubusercontent.com/LunCoSim/godot-package-manager/master/gpm"
 
+PACKAGE_FILE="godot.package"
+GPM_FILE="gpm"
+
 branch="master"
 
 gpm_files=( "godot_package_manager.gd" "main.gd" "main.tscn" "plugin.cfg" "plugin.gd" "utils.gd" "gpm.gd" "classes/advanced-expression.gd" "classes/error.gd" "classes/failed-packages.gd" "classes/hooks.gd" "classes/result.gd" )
@@ -57,10 +60,18 @@ do
 done
 
 #Downloading godot.package
-wget $package_file_url
+if ! test -f "$PACKAGE_FILE"; then
+    wget $package_file_url
+fi
 
-wget $exec_file_url
+if ! test -f "$GPM_FILE"; then
+    wget $exec_file_url
+fi
 
-#TBD autoactivate plagin in godot.project
+# 
+
+# 
+
+# #TBD autoactivate plagin in godot.project
 #TBD add to .gitignore
 echo "Do not forget to add addons/ to .gitignore"
