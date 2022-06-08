@@ -1,14 +1,6 @@
 class_name GPM
 extends Reference
 
-const DEFAULT_ERROR := "Default error"
-
-static func OK(v = null):
-	return GPMResult.new(v if v != null else OK)
-		
-static func ERR(error_code: int = 1, description: String = "") -> GPMResult:
-	return GPMResult.new(GPMError.new(error_code, description))
-
 ## A message that may be logged at any point during runtime
 signal message_logged(text)
 
@@ -108,18 +100,18 @@ static func _read_all_configs() -> GPMResult:
 	if res.is_ok():
 		lock_file = res.unwrap()
 
-	return OK([package_file, lock_file])
+	return GPMUtils.OK([package_file, lock_file])
 
 static func _save_data(data: PoolByteArray, path: String) -> GPMResult:
 	var file := File.new()
 	if file.open(path, File.WRITE) != OK:
-		return ERR(GPMError.Code.FILE_OPEN_FAILURE, path)
+		return GPMUtils.ERR(GPMError.Code.FILE_OPEN_FAILURE, path)
 
 	file.store_buffer(data)
 
 	file.close()
 	
-	return OK()
+	return GPMUtils.OK()
 
 static func _is_valid_new_package(lock_file: Dictionary, npm_manifest: Dictionary) -> bool:
 	if lock_file.get(LockFileKeys.VERSION, "") == npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__"):
@@ -143,28 +135,28 @@ static func _send_get_request(host: String, path: String) -> GPMResult:
 
 	var err := http.connect_to_host(host, 443, true)
 	if err != OK:
-		return ERR(GPMError.Code.CONNECT_TO_HOST_FAILURE, host)
+		return GPMUtils.ERR(GPMError.Code.CONNECT_TO_HOST_FAILURE, host)
 
 	while http.get_status() in CONNECTING_STATUS:
 		http.poll()
 		yield(Engine.get_main_loop(), "idle_frame")
 
 	if http.get_status() != HTTPClient.STATUS_CONNECTED:
-		return ERR(GPMError.Code.UNABLE_TO_CONNECT_TO_HOST, host)
+		return GPMUtils.ERR(GPMError.Code.UNABLE_TO_CONNECT_TO_HOST, host)
 
 	err = http.request(HTTPClient.METHOD_GET, "/%s" % path, HEADERS)
 	if err != OK:
-		return ERR(GPMError.Code.GET_REQUEST_FAILURE, path)
+		return GPMUtils.ERR(GPMError.Code.GET_REQUEST_FAILURE, path)
 
 	while http.get_status() == HTTPClient.STATUS_REQUESTING:
 		http.poll()
 		yield(Engine.get_main_loop(), "idle_frame")
 
 	if not http.get_status() in SUCCESS_STATUS:
-		return ERR(GPMError.Code.UNSUCCESSFUL_REQUEST, path)
+		return GPMUtils.ERR(GPMError.Code.UNSUCCESSFUL_REQUEST, path)
 
 	if http.get_response_code() != 200:
-		return ERR(GPMError.Code.UNEXPECTED_STATUS_CODE, "%s - %d" % [path, http.get_response_code()])
+		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_STATUS_CODE, "%s - %d" % [path, http.get_response_code()])
 
 	var body := PoolByteArray()
 
@@ -177,7 +169,7 @@ static func _send_get_request(host: String, path: String) -> GPMResult:
 		else:
 			body.append_array(chunk)
 
-	return OK(body)
+	return GPMUtils.OK(body)
 
 static func _request_npm_manifest(package_name: String, package_version: String) -> GPMResult:
 	var res = yield(_send_get_request(REGISTRY, "%s/%s" % [package_name, package_version]), "completed")
@@ -187,16 +179,16 @@ static func _request_npm_manifest(package_name: String, package_version: String)
 	var body: String = res.unwrap().get_string_from_utf8()
 	var parse_res := JSON.parse(body)
 	if parse_res.error != OK or not parse_res.result is Dictionary:
-		return ERR(GPMError.Code.UNEXPECTED_DATA, "%s - Unexpected json" % package_name)
+		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_DATA, "%s - Unexpected json" % package_name)
 
 	var npm_manifest: Dictionary = parse_res.result
 
 	if not npm_manifest.has("dist"):
-		return ERR(GPMError.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields" % package_name)
+		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields" % package_name)
 	elif not npm_manifest["dist"].has("tarball"):
-		return ERR(GPMError.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields tarball" % package_name)
+		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields tarball" % package_name)
 
-	return OK(npm_manifest)
+	return GPMUtils.OK(npm_manifest)
 
 #endregion
 
@@ -290,7 +282,7 @@ static func _clean_text(text: String) -> GPMResult:
 
 	var split: PoolStringArray = text.split("\n")
 	if split.empty():
-		return ERR(GPMError.Code.MISSING_SCRIPT)
+		return GPMUtils.ERR(GPMError.Code.MISSING_SCRIPT)
 	
 	var first_line := ""
 	for i in split:
@@ -303,7 +295,7 @@ static func _clean_text(text: String) -> GPMResult:
 	# It's also possible spaces are used instead of tabs, so check for spaces as well
 	var regex_match := whitespace_regex.search(first_line)
 	if regex_match == null:
-		return OK(split)
+		return GPMUtils.OK(split)
 
 	var empty_prefix: String = regex_match.get_string()
 
@@ -312,7 +304,7 @@ static func _clean_text(text: String) -> GPMResult:
 		# will always have a proper new line character
 		r.append(i.trim_prefix(empty_prefix))
 
-	return OK(r)
+	return GPMUtils.OK(r)
 
 ## Build a script from a `String`
 ##
@@ -334,9 +326,9 @@ static func _build_script(text: String) -> GPMResult:
 		ae.add(line)
 
 	if ae.compile() != OK:
-		return ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, "_build_script")
+		return GPMUtils.ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, "_build_script")
 
-	return OK(ae)
+	return GPMUtils.OK(ae)
 
 ## Parse all hooks. Failures cause the entire function to short-circuit
 ##
@@ -358,7 +350,7 @@ static func _parse_hooks(data: Dictionary) -> GPMResult:
 			TYPE_ARRAY:
 				var res = _build_script(PoolStringArray(val).join("\n"))
 				if res.is_err():
-					return ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, key)
+					return GPMUtils.ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, key)
 				hooks.add(key, res.unwrap())
 			TYPE_DICTIONARY:
 				var type = val.get("type", "")
@@ -366,59 +358,47 @@ static func _parse_hooks(data: Dictionary) -> GPMResult:
 				if type == "script":
 					var res = _build_script(value)
 					if res.is_err():
-						return ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, key)
+						return GPMUtils.ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, key)
 					hooks.add(key, res.unwrap())
 				elif type == "script_name":
 					if not data[PackageKeys.SCRIPTS].has(value):
-						return ERR(GPMError.Code.MISSING_SCRIPT, key)
+						return GPMUtils.ERR(GPMError.Code.MISSING_SCRIPT, key)
 					
 					var res = _build_script(data[PackageKeys.SCRIPTS][value])
 					if res.is_err():
-						return ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, key)
+						return GPMUtils.ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, key)
 					hooks.add(key, res.unwrap())
 				else:
-					return ERR(GPMError.Code.BAD_SCRIPT_TYPE, value)
+					return GPMUtils.ERR(GPMError.Code.BAD_SCRIPT_TYPE, value)
 			_:
 				var res = _build_script(val)
 				if res.is_err():
-					return ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, key)
+					return GPMUtils.ERR(GPMError.Code.SCRIPT_COMPILE_FAILURE, key)
 				hooks.add(key, res.unwrap())
 
-	return OK(hooks)
+	return GPMUtils.OK(hooks)
+
+## Processes github packages. Failures cause the entire function to short-circuit
+##
+## @param: data: Dictionary - The entire package dictionary
+##
+## @return: GPMResult<GPMHooks> - The result of the operation
+static func _process_github(data: Dictionary) -> GPMResult:
+	return GPMUtils.OK()
+
+## Processes npm packages. Failures cause the entire function to short-circuit
+##
+## @param: data: Dictionary - The entire package dictionary
+##
+## @return: GPMResult<GPMHooks> - The result of the operation
+static func _process_npm(data: Dictionary) -> GPMResult:
+	return GPMUtils.OK()
 
 #endregion
 
 ###############################################################################
 # Public functions                                                            #
 ###############################################################################
-
-## Emulates `tar xzf <filename> --strip-components=1 -C <output_dir>`
-##
-## @param: file_path: String - The relative file path to a tar file
-## @param: output_path: String - The file path to extract to
-##
-## @return: GPMResult[] - The result of the operation
-static func xzf(file_path: String, output_path: String) -> GPMResult:
-	var output := []
-	OS.execute(
-		"tar",
-		[
-			"xzf",
-			ProjectSettings.globalize_path(file_path),
-			"--strip-components=1",
-			"-C",
-			ProjectSettings.globalize_path(output_path)
-		],
-		true,
-		output
-	)
-
-	# `tar xzf` should not produce any output
-	if not output.empty() and not output.front().empty():
-		printerr(output)
-		return ERR(GPMError.Code.GENERIC, "Tar failed")
-
-	return OK()
 
 #region Config handling
 
@@ -429,27 +409,27 @@ static func xzf(file_path: String, output_path: String) -> GPMResult:
 ## @return: GPMResult<Dictionary> - The contents of the config file
 static func read_config(file_name: String) -> GPMResult:
 	if not file_name in [PACKAGE_FILE, LOCK_FILE]:
-		return ERR(GPMError.Code.GENERIC, "Unrecognized file %s" % file_name)
+		return GPMUtils.ERR(GPMError.Code.GENERIC, "Unrecognized file %s" % file_name)
 
 	var file := File.new()
 	if file.open(file_name, File.READ) != OK:
-		return ERR(GPMError.Code.FILE_OPEN_FAILURE, file_name)
+		return GPMUtils.ERR(GPMError.Code.FILE_OPEN_FAILURE, file_name)
 
 	var parse_result := JSON.parse(file.get_as_text())
 	if parse_result.error != OK:
-		return ERR(GPMError.Code.PARSE_FAILURE, file_name)
+		return GPMUtils.ERR(GPMError.Code.PARSE_FAILURE, file_name)
 
 	# Closing to save on memory I guess
 	file.close()
 
 	var data = parse_result.result
 	if not data is Dictionary:
-		return ERR(GPMError.Code.UNEXPECTED_DATA, file_name)
+		return GPMUtils.ERR(GPMError.Code.UNEXPECTED_DATA, file_name)
 
 	if file_name == PACKAGE_FILE and data.get(PackageKeys.PACKAGES, {}).empty():
-		return ERR(GPMError.Code.NO_PACKAGES, file_name)
+		return GPMUtils.ERR(GPMError.Code.NO_PACKAGES, file_name)
 
-	return OK(data)
+	return GPMUtils.OK(data)
 
 ## Writes a `Dictionary` to a specified file_name in the project root
 ##
@@ -458,17 +438,17 @@ static func read_config(file_name: String) -> GPMResult:
 ## @result: GPMResult<()> - The result of the operation
 static func write_config(file_name: String, data: Dictionary) -> GPMResult:
 	if not file_name in [PACKAGE_FILE, LOCK_FILE]:
-		return ERR(GPMError.Code.GENERIC, "Unrecognized file %s" % file_name)
+		return GPMUtils.ERR(GPMError.Code.GENERIC, "Unrecognized file %s" % file_name)
 
 	var file := File.new()
 	if file.open(file_name, File.WRITE) != OK:
-		return ERR(GPMError.Code.FILE_OPEN_FAILURE, file_name)
+		return GPMUtils.ERR(GPMError.Code.FILE_OPEN_FAILURE, file_name)
 
 	file.store_string(JSON.print(data, "\t"))
 
 	file.close()
 
-	return OK()
+	return GPMUtils.OK()
 
 #endregion
 
@@ -482,7 +462,7 @@ func print(text: String) -> void:
 func dry_run() -> GPMResult:
 	var res := _read_all_configs()
 	if not res:
-		return ERR(GPMError.Code.GENERIC, "Unable to read configs, bailing out")
+		return GPMUtils.ERR(GPMError.Code.GENERIC, "Unable to read configs, bailing out")
 	if res.is_err():
 		return res
 
@@ -499,7 +479,7 @@ func dry_run() -> GPMResult:
 	var pre_dry_run_res = hooks.run(self, ValidHooks.PRE_DRY_RUN)
 	if typeof(pre_dry_run_res) == TYPE_BOOL and pre_dry_run_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_DRY_RUN)
-		return OK({DryRunValues.OK: true})
+		return GPMUtils.OK({DryRunValues.OK: true})
 
 	var dir := Directory.new()
 
@@ -524,7 +504,7 @@ func dry_run() -> GPMResult:
 
 		res = yield(_request_npm_manifest(package_name, package_version), "completed")
 		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
+			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 			continue
 
 		var npm_manifest: Dictionary = res.unwrap()
@@ -541,9 +521,9 @@ func dry_run() -> GPMResult:
 	var post_dry_run_res = hooks.run(self, ValidHooks.POST_DRY_RUN)
 	if typeof(post_dry_run_res) == TYPE_BOOL and post_dry_run_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_DRY_RUN)
-		return OK({DryRunValues.OK: true})
+		return GPMUtils.OK({DryRunValues.OK: true})
 
-	return OK({
+	return GPMUtils.OK({
 		DryRunValues.OK: packages_to_update.empty() and failed_packages.failed_package_log.empty(),
 		DryRunValues.UPDATE: packages_to_update,
 		DryRunValues.INVALID: failed_packages.failed_package_log
@@ -555,7 +535,7 @@ func dry_run() -> GPMResult:
 func update(force: bool = false) -> GPMResult:
 	var res := _read_all_configs()
 	if not res:
-		return ERR(GPMError.Code.GENERIC, "Unable to read configs, bailing out")
+		return GPMUtils.ERR(GPMError.Code.GENERIC, "Unable to read configs, bailing out")
 	if res.is_err():
 		return res
 
@@ -572,7 +552,7 @@ func update(force: bool = false) -> GPMResult:
 	var pre_update_res = hooks.run(self, ValidHooks.PRE_UPDATE)
 	if typeof(pre_update_res) == TYPE_BOOL and pre_update_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_UPDATE)
-		return OK()
+		return GPMUtils.OK()
 
 	var dir := Directory.new()
 	
@@ -648,7 +628,7 @@ func update(force: bool = false) -> GPMResult:
 
 		res = yield(_request_npm_manifest(package_name, package_version), "completed")
 		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
+			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 			continue
 
 		var npm_manifest: Dictionary = res.unwrap()
@@ -671,14 +651,14 @@ func update(force: bool = false) -> GPMResult:
 
 		res = yield(_send_get_request(REGISTRY, npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].replace(REGISTRY, "")), "completed")
 		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
+			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 			continue
 
 		var download_location: String = ADDONS_DIR_FORMAT % npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].get_file()
 		var downloaded_file: PoolByteArray = res.unwrap()
 		res = _save_data(downloaded_file, download_location)
 		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
+			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 			continue
 
 		#endregion
@@ -688,9 +668,9 @@ func update(force: bool = false) -> GPMResult:
 				failed_packages.add(package_name, "Unable to create directory")
 				continue
 		
-		res = xzf(download_location, dir_name)
+		res = GPMUtils.xzf(download_location, dir_name)
 		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
+			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 			continue
 		
 		if dir.remove(download_location) != OK:
@@ -707,16 +687,16 @@ func update(force: bool = false) -> GPMResult:
 	var post_update_res = hooks.run(self, ValidHooks.POST_UPDATE)
 	if typeof(post_update_res) == TYPE_BOOL and post_update_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_UPDATE)
-		return OK()
+		return GPMUtils.OK()
 	
 	if failed_packages.has_logs():
-		return ERR(GPMError.Code.PROCESS_PACKAGES_FAILURE, failed_packages.get_logs())
+		return GPMUtils.ERR(GPMError.Code.PROCESS_PACKAGES_FAILURE, failed_packages.get_logs())
 
 	res = write_config(LOCK_FILE, lock_file)
 	if not res or res.is_err():
-		return res if res else ERR(GPMError.Code.GENERIC, "Unable to write configs")
+		return res if res else GPMUtils.ERR(GPMError.Code.GENERIC, "Unable to write configs")
 
-	return OK()
+	return GPMUtils.OK()
 
 ## Remove all packages listed in `godot.lock`
 ##
@@ -724,7 +704,7 @@ func update(force: bool = false) -> GPMResult:
 func purge() -> GPMResult:
 	var res := _read_all_configs()
 	if not res:
-		return ERR(GPMError.Code.GENERIC, "Unable to read configs, bailing out")
+		return GPMUtils.ERR(GPMError.Code.GENERIC, "Unable to read configs, bailing out")
 	if res.is_err():
 		return res
 
@@ -741,7 +721,7 @@ func purge() -> GPMResult:
 	var pre_purge_res = hooks.run(self, ValidHooks.PRE_PURGE)
 	if typeof(pre_purge_res) == TYPE_BOOL and pre_purge_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_PURGE)
-		return OK()
+		return GPMUtils.OK()
 
 	var dir := Directory.new()
 
@@ -763,7 +743,7 @@ func purge() -> GPMResult:
 	var post_purge_res = hooks.run(self, ValidHooks.POST_PURGE)
 	if typeof(post_purge_res) == TYPE_BOOL and post_purge_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_PURGE)
-		return OK()
+		return GPMUtils.OK()
 	
 	var keys_to_erase := []
 	for key in lock_file.keys():
@@ -777,5 +757,5 @@ func purge() -> GPMResult:
 	if res.is_err():
 		return res
 
-	return OK() if not failed_packages.has_logs() else \
-			ERR(GPMError.Code.REMOVE_PACKAGE_DIR_FAILURE, failed_packages.get_logs())
+	return GPMUtils.OK() if not failed_packages.has_logs() else \
+		GPMUtils.ERR(GPMError.Code.REMOVE_PACKAGE_DIR_FAILURE, failed_packages.get_logs())

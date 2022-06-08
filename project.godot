@@ -38,6 +38,11 @@ _global_script_classes=[ {
 "class": "GPMResult",
 "language": "GDScript",
 "path": "res://addons/godot-package-manager/classes/result.gd"
+}, {
+"base": "Reference",
+"class": "GPMUtils",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/utils.gd"
 } ]
 _global_script_class_icons={
 "GPM": "",
@@ -45,7 +50,8 @@ _global_script_class_icons={
 "GPMError": "",
 "GPMFailedPackages": "",
 "GPMHooks": "",
-"GPMResult": ""
+"GPMResult": "",
+"GPMUtils": ""
 }
 
 [application]
