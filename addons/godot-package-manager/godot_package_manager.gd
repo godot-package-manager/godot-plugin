@@ -562,11 +562,13 @@ func update(force: bool = false) -> GPMResult:
 	var failed_packages := GPMFailedPackages.new()
 	for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
 		emit_signal("operation_checkpoint_reached", package_name)
+
 		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
 		var package_version := ""
 
 		var data = package_file[PackageKeys.PACKAGES][package_name]
 		if data is Dictionary:
+			
 			package_version = data.get(PackageKeys.VERSION, "")
 			if package_version.empty():
 				failed_packages.add(package_name, res.unwrap_err().to_string())
@@ -625,27 +627,42 @@ func update(force: bool = false) -> GPMResult:
 				continue
 		else:
 			package_version = data
+		
+		var npm_manifest: Dictionary
+		var download_location: String
+		var downloaded_file: PoolByteArray
 
-		res = yield(_request_npm_manifest(package_name, package_version), "completed")
-		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
+		#------------
+		#That's to get link to tarball! Only for NPM
+		if (data is Dictionary) and (data.has("src")):
+			emit_signal("message_logged", "Processing gihub")
 			continue
+		else:
+			emit_signal("message_logged", "Processing npm")
+			res = yield(_request_npm_manifest(package_name, package_version), "completed")
+			if not res or res.is_err():
+				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
+				continue
 
-		var npm_manifest: Dictionary = res.unwrap()
+			npm_manifest = res.unwrap()
 
-		# Check against lockfile and determine whether to continue or not
-		# If the directory does not exist, there's no need to do addtional checks
-		if dir.dir_exists(dir_name):
-			if not force:
-				if lock_file.has(package_name) and \
-						not _is_valid_new_package(lock_file[package_name], npm_manifest):
-					emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" %
-							[package_name, package_name])
+			# Check against lockfile and determine whether to continue or not
+			# If the directory does not exist, there's no need to do addtional checks
+			if dir.dir_exists(dir_name):
+				if not force:
+					if lock_file.has(package_name) and \
+							not _is_valid_new_package(lock_file[package_name], npm_manifest):
+						emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" %
+								[package_name, package_name])
+						continue
+
+				if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
+					failed_packages.add(package_name, "Unable to remove old files")
 					continue
 
-			if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
-				failed_packages.add(package_name, "Unable to remove old files")
-				continue
+			download_location = ADDONS_DIR_FORMAT % npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].get_file()
+			downloaded_file = res.unwrap()
+		#------------
 
 		#region Download tarball
 
@@ -654,8 +671,7 @@ func update(force: bool = false) -> GPMResult:
 			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 			continue
 
-		var download_location: String = ADDONS_DIR_FORMAT % npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].get_file()
-		var downloaded_file: PoolByteArray = res.unwrap()
+		
 		res = _save_data(downloaded_file, download_location)
 		if not res or res.is_err():
 			failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
