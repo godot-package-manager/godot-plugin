@@ -35,6 +35,16 @@ _global_script_classes=[ {
 "path": "res://addons/godot-package-manager/classes/hooks.gd"
 }, {
 "base": "Reference",
+"class": "GPMHttp",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/utils/http.gd"
+}, {
+"base": "Reference",
+"class": "GPMNpm",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/adaptors/npmjs.gd"
+}, {
+"base": "Reference",
 "class": "GPMResult",
 "language": "GDScript",
 "path": "res://addons/godot-package-manager/classes/result.gd"
@@ -50,6 +60,8 @@ _global_script_class_icons={
 "GPMError": "",
 "GPMFailedPackages": "",
 "GPMHooks": "",
+"GPMHttp": "",
+"GPMNpm": "",
 "GPMResult": "",
 "GPMUtils": ""
 }
