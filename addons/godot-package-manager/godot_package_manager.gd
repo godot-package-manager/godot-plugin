@@ -544,9 +544,8 @@ func update(force: bool = false) -> GPMResult:
 				npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL] = data["dist"]
 				
 				#region Download tarball
-				var hostname = GPMUtils.hostname(data["dist"])
-				var path = GPMUtils.path(data["dist"])
-				res = yield(GPMHttp.send_get_request(hostname, path), "completed")
+				
+				res = yield(GPMHttp.send_get_request(data["dist"]), "completed")
 				if not res or res.is_err():
 					failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
 					continue

@@ -26,9 +26,9 @@ static func save_data(data: PoolByteArray, path: String) -> GPMResult:
 	
 	return GPMUtils.OK()
 
-func download(url, dest):
+static func download(url, dest):
 	#region Download tarball
-	var res = yield(GPMHttp.send_get_request(url), "completed")
+	var res = yield(send_get_request(url), "completed")
 	if not res or res.is_err():
 		return res
 
@@ -44,7 +44,11 @@ func download(url, dest):
 ## @param: path: String - The host path
 ##
 ## @return: GPMResult[PoolByteArray] - The response body
-static func send_get_request(host: String, path: String) -> GPMResult:
+static func send_get_request(url: String) -> GPMResult:
+	
+	var host = GPMUtils.hostname(url)
+	var path = GPMUtils.path(url)
+
 	var http := HTTPClient.new()
 
 	var err := http.connect_to_host(host, 443, true)
@@ -69,13 +73,13 @@ static func send_get_request(host: String, path: String) -> GPMResult:
 	if not http.get_status() in SUCCESS_STATUS:
 		return GPMUtils.ERR(GPMError.Code.UNSUCCESSFUL_REQUEST, path)
 	
-	if http.get_response_code() == 302:
-		var location = http.get_response_headers_as_dictionary()["Location"]
-		var host_loc = "https://" + location.replace("https://", "").split("/")[0]
-		var path_loc = location.replace(host_loc, "")
-		print("Loc: ", location, " || ", host_loc, " || ", path_loc)
+	# if http.get_response_code() == 302:
+	# 	var location = http.get_response_headers_as_dictionary()["Location"]
+	# 	var host_loc = "https://" + location.replace("https://", "").split("/")[0]
+	# 	var path_loc = location.replace(host_loc, "")
+	# 	print("Loc: ", location, " || ", host_loc, " || ", path_loc)
 		
-		return yield(_send_get_request("https://"+host_loc, path_loc), "completed")
+	# 	return yield(send_get_request("https://"+host_loc, path_loc), "completed")
 	
 
 	if http.get_response_code() != 200:
