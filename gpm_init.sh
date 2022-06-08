@@ -6,7 +6,9 @@ gpm_dir=$dirname"/godot-package-manager"
 #TODO: Change to this repo once accepted
 #gpm_url="https://github.com/you-win/godot-package-manager"
 gpm_url="https://raw.githubusercontent.com/LunCoSim/godot-package-manager"
-package_file_url="https://raw.githubusercontent.com/you-win/godot-package-manager/master/godot.package"
+package_file_url="https://raw.githubusercontent.com/LunCoSim/godot-package-manager/master/godot.package"
+exec_file_url="https://raw.githubusercontent.com/LunCoSim/godot-package-manager/master/gpm"
+
 branch="master"
 
 gpm_files=( "godot_package_manager.gd" "main.gd" "main.tscn" "plugin.cfg" "plugin.gd" "utils.gd" "gpm.gd" "classes/advanced-expression.gd" "classes/error.gd" "classes/failed-packages.gd" "classes/hooks.gd" "classes/result.gd" )
@@ -56,6 +58,8 @@ done
 
 #Downloading godot.package
 wget $package_file_url
+
+wget $exec_file_url
 
 #TBD autoactivate plagin in godot.project
 #TBD add to .gitignore
