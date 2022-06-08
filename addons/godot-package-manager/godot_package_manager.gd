@@ -1,4 +1,5 @@
 extends Reference
+class_name GPM
 
 #region Error handling
 

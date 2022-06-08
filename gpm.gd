@@ -7,28 +7,27 @@ const GPM_PATH = "addons/godot-package-manager/"
 const GPM_MAIN_SCRIPT = "godot_package_manager.gd"
 const GPM_CONFIG = "godot.package"
 
-var gpm = load("res://"+GPM_PATH+GPM_MAIN_SCRIPT).new()
-
+var gpm: GPM = load("res://"+GPM_PATH+GPM_MAIN_SCRIPT).new()
 
 func _init():
-    #Separate main function should simplify
-    main()
-    print("Exiting! Bye bye")
-
-    gpm.connect("operation_started", self, "_on_operation_started")
-    gpm.connect("message_logged", self, "_on_message_logged")
-    gpm.connect("operation_checkpoint_reached", self, "_on_operation_checkpoint_reached")
-    gpm.connect("operation_finished", self, "_on_update_finished")
-
-    quit()
+	#connecting signals
+	gpm.connect("operation_started", self, "_on_operation_started")
+	gpm.connect("message_logged", self, "_on_message_logged")
+	gpm.connect("operation_checkpoint_reached", self, "_on_operation_checkpoint_reached")
+	gpm.connect("operation_finished", self, "_on_update_finished")
+	
+	#Separate main function should simplify
+	main()
+	_log("** Exiting! Bye bye")
+	quit()
 
 
 func main():
-    print("Entrering main function")
-    print("TBD: parse arguments")
-    var res = gpm.read_config(GPM_CONFIG)
-    print(res)
-    gpm.dry_run()
+	_log("Entrering main function")
+	_log("TBD: parse arguments")
+	var res = gpm.read_config(GPM_CONFIG)
+	_log(res)
+	gpm.dry_run()
 
 
 
@@ -68,18 +67,18 @@ func _on_update(force: bool) -> void:
 		_log(res.unwrap_err().to_string())
 
 func _on_clear(_text_edit: TextEdit) -> void:
-    _log("_on_clear")
+	_log("_on_clear")
 	# text_edit.text = ""
 
 func _on_purge() -> void:
 	# if purge_button.text == PURGE_TEXT:
 	# 	purge_button.text = CONFIRM_TEXT
 	# else:
-    _log("Purging all downloaded packages")
-    gpm.purge()
+	_log("Purging all downloaded packages")
+	gpm.purge()
 
 func _on_purge_reset() -> void:
-    _log("_on_purge_reset")
+	_log("_on_purge_reset")
 	# purge_button.text = PURGE_TEXT
 
 func _on_message_logged(text: String) -> void:
@@ -88,6 +87,7 @@ func _on_message_logged(text: String) -> void:
 #region Update
 
 func _on_operation_started(operation: String, num_packages: int) -> void:
+	print("alskjdalskjdlaksjdlkasjdlkjkl")
 	_log("Running %s for %d packages" % [operation, num_packages])
 
 func _on_operation_checkpoint_reached(package_name: String) -> void:
