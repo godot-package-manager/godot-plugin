@@ -5,10 +5,105 @@ extends SceneTree
 
 const GPM_PATH = "addons/godot-package-manager/"
 const GPM_MAIN_SCRIPT = "godot_package_manager.gd"
+const GPM_CONFIG = "godot.package"
 
 var gpm = load("res://"+GPM_PATH+GPM_MAIN_SCRIPT).new()
 
+
 func _init():
-    print("Hello!")
-    
+    #Separate main function should simplify
+    main()
+    print("Exiting! Bye bye")
+
+    gpm.connect("operation_started", self, "_on_operation_started")
+    gpm.connect("message_logged", self, "_on_message_logged")
+    gpm.connect("operation_checkpoint_reached", self, "_on_operation_checkpoint_reached")
+    gpm.connect("operation_finished", self, "_on_update_finished")
+
     quit()
+
+
+func main():
+    print("Entrering main function")
+    print("TBD: parse arguments")
+    var res = gpm.read_config(GPM_CONFIG)
+    print(res)
+    gpm.dry_run()
+
+
+
+#-------
+
+###############################################################################
+# Signals processing
+###############################################################################
+
+
+func _on_status() -> void:
+	_log("Getting package status")
+	var res = yield(gpm.dry_run(), "completed")
+	if res.is_ok():
+		var data: Dictionary = res.unwrap()
+		if data.get(gpm.DryRunValues.OK, false):
+			_log("All packages okay, no update required")
+			return
+		
+		if not data.get(gpm.DryRunValues.UPDATE, []).empty():
+			_log("Packages to update:")
+			for i in data[gpm.DryRunValues.UPDATE]:
+				_log(i)
+		if not data.get(gpm.DryRunValues.INVALID, []).empty():
+			_log("Invalid packages:")
+			for i in data[gpm.DryRunValues.INVALID]:
+				_log(i)
+	else:
+		_log(res.unwrap_err().to_string())
+
+func _on_update(force: bool) -> void:
+	_log("Updating all valid packages")
+	var res = yield(gpm.update(force), "completed")
+	if res.is_ok():
+		_log("Update successful")
+	else:
+		_log(res.unwrap_err().to_string())
+
+func _on_clear(_text_edit: TextEdit) -> void:
+    _log("_on_clear")
+	# text_edit.text = ""
+
+func _on_purge() -> void:
+	# if purge_button.text == PURGE_TEXT:
+	# 	purge_button.text = CONFIRM_TEXT
+	# else:
+    _log("Purging all downloaded packages")
+    gpm.purge()
+
+func _on_purge_reset() -> void:
+    _log("_on_purge_reset")
+	# purge_button.text = PURGE_TEXT
+
+func _on_message_logged(text: String) -> void:
+	_log(text)
+
+#region Update
+
+func _on_operation_started(operation: String, num_packages: int) -> void:
+	_log("Running %s for %d packages" % [operation, num_packages])
+
+func _on_operation_checkpoint_reached(package_name: String) -> void:
+	_log("Processing %s" % package_name)
+
+func _on_update_finished() -> void:
+	_log("_on_update_finished")
+	_log("Finished")
+
+###############################################################################
+# Private functions                                                           #
+###############################################################################
+
+func _log(text: String) -> void:
+	print(text)
+
+###############################################################################
+# Public functions                                                            #
+###############################################################################
