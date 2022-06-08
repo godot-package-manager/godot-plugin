@@ -702,3 +702,10 @@ func purge() -> GPMResult:
 
 	return GPMUtils.OK() if not failed_packages.has_logs() else \
 		GPMUtils.ERR(GPMError.Code.REMOVE_PACKAGE_DIR_FAILURE, failed_packages.get_logs())
+
+
+#-----------------------------------
+
+func print(text: String) -> void:
+	print(text)
+	emit_signal("message_logged", text)
