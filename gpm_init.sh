@@ -14,7 +14,7 @@ GPM_FILE="gpm"
 
 branch="master"
 
-gpm_files=( "godot_package_manager.gd" "main.gd" "main.tscn" "plugin.cfg" "plugin.gd" "utils/utils.gd" "utils/fs.gd" "utils/http.gd" "gpm.gd" "classes/advanced-expression.gd" "classes/error.gd" "classes/failed-packages.gd" "classes/hooks.gd" "classes/result.gd" )
+gpm_files=( "godot_package_manager.gd" "main.gd" "main.tscn" "plugin.cfg" "plugin.gd" "adaptors/npmjs.gd" "utils/utils.gd" "utils/utils.gd" "utils/fs.gd" "utils/http.gd" "gpm.gd" "classes/advanced-expression.gd" "classes/error.gd" "classes/failed-packages.gd" "classes/hooks.gd" "classes/result.gd" )
 
 create_folder() {
     folder = $1
