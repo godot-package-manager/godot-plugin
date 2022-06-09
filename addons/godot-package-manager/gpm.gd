@@ -22,16 +22,11 @@ func _init():
 	
 	#Separate main function should simplify
 	main()
-	_log("** Exiting! Bye bye")
 	
-	
-
-
 func main():
 	_log("Entrering main function")
 	_log("TBD: parse arguments")
 	var res = gpm.read_config(GPM_CONFIG)
-	_log(res)
 	gpm.update()
 	
 

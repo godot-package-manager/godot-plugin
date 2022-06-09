@@ -96,10 +96,6 @@ static func _is_valid_new_package(lock_file: Dictionary, npm_manifest: Dictionar
 
 	return true
 
-
-
-
-
 #region Scripts
 
 static func _clean_text(text: String) -> GPMResult:
@@ -205,6 +201,14 @@ static func _parse_hooks(data: Dictionary) -> GPMResult:
 				hooks.add(key, res.unwrap())
 
 	return GPMUtils.OK(hooks)
+
+## Prepare pack
+##
+## @param: data: Dictionary - The entire package dictionary
+##
+## @return: GPMResult<> - The result of the operation
+
+
 
 ## Processes github packages. Failures cause the entire function to short-circuit
 ##
@@ -394,6 +398,7 @@ func update(force: bool = false) -> GPMResult:
 		var package_version := ""
 
 		var data = package_file[PackageKeys.PACKAGES][package_name]
+		
 		if data is Dictionary:
 			
 			package_version = data.get(PackageKeys.VERSION, "")
@@ -455,7 +460,7 @@ func update(force: bool = false) -> GPMResult:
 		else:
 			package_version = data
 		
-		var npm_manifest: Dictionary
+		
 		var download_location: String
 		var download_link: String
 
@@ -475,6 +480,7 @@ func update(force: bool = false) -> GPMResult:
 				download_link = data["url"]
 				GPMUtils.clone(download_link, download_location)
 		else:
+			var npm_manifest: Dictionary
 			emit_signal("message_logged", "Processing npm")
 
 			res = yield(GPMNpm.request_npm_manifest(package_name, package_version), "completed")
@@ -506,7 +512,6 @@ func update(force: bool = false) -> GPMResult:
 			
 			#region Download tarball
 			res = GPMUtils.wget(download_link, download_location)
-			
 			
 			if not res or res.is_err():
 				failed_packages.add_response(package_name, res)
