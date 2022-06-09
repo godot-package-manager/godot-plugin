@@ -530,18 +530,16 @@ func update(force: bool = false) -> GPMResult:
 			emit_signal("message_logged", "Skipping %s" % package_name)
 			continue
 
-		var dest = data["subdir"] if data.has("subdir") else dir_name
-
 		#------------
 		# Check against lockfile and determine whether to continue or not
 		# If the directory does not exist, there's no need to do addtional checks
-		if dir.dir_exists(dest):
+		if dir.dir_exists(dir_name):
 			if not force:
 				if not _is_valid_new_package(lock_file, package_name, version, integrity):
 					emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" % [package_name, package_name])
 					continue
 
-			if GPMFs.remove_dir_recursive(ProjectSettings.globalize_path(dest)) != OK:
+			if GPMFs.remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
 				emit_signal("message_logged", "Can't delete folder Skipping %s" % package_name)
 				failed_packages.add_response(package_name, res)
 				continue
@@ -579,13 +577,22 @@ func update(force: bool = false) -> GPMResult:
 				failed_packages.add_response(package_name, res)
 				continue
 		
-		# # Creating directory to store the result
-		# if not dir.dir_exists(dest):
-		# 	if dir.make_dir_recursive(dest) != OK:
-		# 		emit_signal("message_logged", "Can't create folder Skipping %s" % package_name)
-		# 		failed_packages.add(package_name, "Unable to create directory")
-		# 		continue
+		
+		
+		
+		var src = cache_dir 
 
+		if data.has("subdir"):
+			src = src + "/" + data["subdir"]
+		else:
+			# Creating directory to store the result
+			if not dir.dir_exists(dir_name):
+				if dir.make_dir_recursive(dir_name) != OK:
+					emit_signal("message_logged", "Can't create folder Skipping %s" % package_name)
+					failed_packages.add(package_name, "Unable to create directory")
+					continue
+		
+		GPMUtils.mv(src, "res://addons")
 		#endregion
 		
 		# Saving lockfile
@@ -597,10 +604,9 @@ func update(force: bool = false) -> GPMResult:
 		if not res or res.is_err():
 			failed_packages.add(package_name, "Unable to write configs")
 	
-	# # Removing cache
-		if dir.remove(ADDONS_DIR_CACHE) != OK:
-			failed_packages.add(package_name, "Failed to remove cache")
-			continue
+# # Removing cache
+	if dir.remove(ADDONS_DIR_CACHE) != OK:
+		emit_signal("message_logged", "Failed to remove cache")
 
 	emit_signal("operation_finished")
 	

@@ -70,19 +70,19 @@ static func wget(file_path: String, output_path: String) -> GPMResult:
 ##
 ## @return: GPMResult[] - The result of the operation
 static func mv(file_path: String, output_path: String) -> GPMResult:
-
+	print("Moving %s %s" % [ProjectSettings.globalize_path(file_path), ProjectSettings.globalize_path(output_path)])
 	var _output := []
 
 	OS.execute(
 		"mv",
 		[
-			file_path,
-			output_path
+			ProjectSettings.globalize_path(file_path),
+			ProjectSettings.globalize_path(output_path),
 		],
 		true,
 		_output
 	)
-	
+	print(_output)
 	return OK()
 
 ## rm
