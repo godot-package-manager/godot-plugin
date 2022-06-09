@@ -126,5 +126,4 @@ static func clone(file_path: String, output_path: String) -> GPMResult:
 		true,
 		_output
 	)
-	print("Clone: ", file_path, " || ", output_path, " || ", _output)
 	return OK()

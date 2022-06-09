@@ -87,12 +87,15 @@ static func _read_all_configs() -> GPMResult:
 
 	return GPMUtils.OK([package_file, lock_file])
 
-static func _is_valid_new_package(lock_file: Dictionary, npm_manifest: Dictionary) -> bool:
-	if lock_file.get(LockFileKeys.VERSION, "") == npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__"):
-		return false
+static func _is_valid_new_package(lock_file: Dictionary, package_name, version: String, integrity: String = "_MISSING_") -> bool:
+	
+	if lock_file.has(package_name):
+		if lock_file.get(LockFileKeys.VERSION, "") == version:
+			return false
 
-	if lock_file.get(LockFileKeys.INTEGRITY, "") == npm_manifest.get(NpmManifestKeys.DIST, {}).get(NpmManifestKeys.INTEGRITY, "__MISSING__"):
-		return false
+		if integrity != "_MISSING_":
+			if lock_file.get(LockFileKeys.INTEGRITY, "") == integrity:
+				return false
 
 	return true
 
@@ -202,13 +205,93 @@ static func _parse_hooks(data: Dictionary) -> GPMResult:
 
 	return GPMUtils.OK(hooks)
 
-## Prepare pack
+## Create list of packages to be updated
 ##
 ## @param: data: Dictionary - The entire package dictionary
 ##
 ## @return: GPMResult<> - The result of the operation
 
+func list_packages_to_update(package_file, failed_packages: GPMFailedPackages) -> Dictionary:
+	var update_packages := {}
 
+	for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
+		emit_signal("operation_checkpoint_reached", package_name)
+
+		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
+		var cache_dir: String = ADDONS_DIR_FORMAT_CACHE % package_name.get_file()
+
+		var data = package_file[PackageKeys.PACKAGES][package_name]
+		var res
+
+		if data is Dictionary:
+			
+			# TODO: Implement version check
+
+			# package_version = data.get(PackageKeys.VERSION, "")
+			# if package_version.empty():
+			# 	failed_packages.add_response(package_name, res)
+			# 	continue
+			
+			# Keep track of whether we should skip to the next item
+			# Used to break out of inner for-loop and continue to next item
+			# in outer for-loop
+			var should_skip := false
+			for n in [PackageKeys.REQUIRED_WHEN, PackageKeys.OPTIONAL_WHEN]:
+				if data.has(n):
+					var body
+					var body_data = data[n]
+					if body_data is Dictionary:
+						var type = body_data.get("type", "")
+						var value = body_data.get("value", "")
+						if type == "script":
+							body = value
+						elif type == "script_name":
+							if not package_file[PackageKeys.SCRIPTS].has(value):
+								failed_packages.add_response(package_name, "Script does not exist %s" % value)
+								should_skip = true
+								break
+
+							body = package_file[PackageKeys.SCRIPTS][value]
+						else:
+							# Invalid type, assume the entire block is bad
+							failed_packages.add_response(package_name, "Invalid type %s, bailing out" % type)
+							should_skip = true
+							break
+					else:
+						body = body_data
+					res = _build_script(body if body is String else PoolStringArray(body).join("\n"))
+					if res.is_err():
+						failed_packages.add_response(package_name, "Failed to parse section %s" % n)
+						should_skip = true
+						break
+					
+					var execute_value = res.unwrap().execute([self])
+					if typeof(execute_value) == TYPE_BOOL:
+						match n:
+							PackageKeys.REQUIRED_WHEN:
+								if execute_value == false:
+									emit_signal("message_logged", "Skipping package %s because of %s condition" %
+											[package_name, n])
+									should_skip = true
+							PackageKeys.OPTIONAL_WHEN:
+								if execute_value == true:
+									emit_signal("message_logged", "Skipping package %s because of %s condition" %
+											[package_name, n])
+									should_skip = true
+
+					if should_skip:
+						break
+			if should_skip:
+				continue
+		else:
+			data = {
+				"version": data,
+				"src": "npm",
+			}
+
+		update_packages[package_name] = data
+
+	return update_packages
 
 ## Processes github packages. Failures cause the entire function to short-circuit
 ##
@@ -284,7 +367,8 @@ static func write_config(file_name: String, data: Dictionary) -> GPMResult:
 
 #endregion
 
-## Reads the config files and returns the operation that would have been taken for each package
+## WARNING: This function is not working now!
+## Reads the config files and returns the operation that would have been taken for each package.
 ##
 ## @return: GPMResult<Dictionary> - The actions that would have been taken or OK
 func dry_run() -> GPMResult:
@@ -336,12 +420,12 @@ func dry_run() -> GPMResult:
 			continue
 
 		var npm_manifest: Dictionary = res.unwrap()
-
+		var npm_version = npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__")
+		var npm_integrity = npm_manifest.get(NpmManifestKeys.DIST, {}).get(NpmManifestKeys.INTEGRITY, "__MISSING__")
+		
 		if dir.dir_exists(dir_name):
-			if lock_file.has(package_name) and \
-					not _is_valid_new_package(lock_file[package_name], npm_manifest):
+			if not _is_valid_new_package(lock_file, package_name, npm_version, npm_integrity):
 				continue
-			
 			packages_to_update.append(package_name)
 	
 	emit_signal("operation_finished")
@@ -388,137 +472,82 @@ func update(force: bool = false) -> GPMResult:
 	
 	# Used for compiling together all errors that may occur
 	var failed_packages := GPMFailedPackages.new()
+	
+	emit_signal("operation_checkpoint_reached", "Building list of packages to update")
+	var update_packages := list_packages_to_update(package_file, failed_packages)
+	emit_signal("operation_checkpoint_reached", "List of packages to update created")
 
-
-	for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
+	for package_name in update_packages:
 		emit_signal("operation_checkpoint_reached", package_name)
-
-		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
-		var cache_dir: String = ADDONS_DIR_FORMAT_CACHE % package_name.get_file()
-		var package_version := ""
-
-		var data = package_file[PackageKeys.PACKAGES][package_name]
-		
-		if data is Dictionary:
-			
-			package_version = data.get(PackageKeys.VERSION, "")
-			if package_version.empty():
-				failed_packages.add_response(package_name, res)
-				continue
-			
-			# Keep track of whether we should skip to the next item
-			# Used to break out of inner for-loop and continue to next item
-			# in outer for-loop
-			var should_skip := false
-			for n in [PackageKeys.REQUIRED_WHEN, PackageKeys.OPTIONAL_WHEN]:
-				if data.has(n):
-					var body
-					var body_data = data[n]
-					if body_data is Dictionary:
-						var type = body_data.get("type", "")
-						var value = body_data.get("value", "")
-						if type == "script":
-							body = value
-						elif type == "script_name":
-							if not package_file[PackageKeys.SCRIPTS].has(value):
-								failed_packages.add_response(package_name, "Script does not exist %s" % value)
-								should_skip = true
-								break
-
-							body = package_file[PackageKeys.SCRIPTS][value]
-						else:
-							# Invalid type, assume the entire block is bad
-							failed_packages.add_response(package_name, "Invalid type %s, bailing out" % type)
-							should_skip = true
-							break
-					else:
-						body = body_data
-					res = _build_script(body if body is String else PoolStringArray(body).join("\n"))
-					if res.is_err():
-						failed_packages.add_response(package_name, "Failed to parse section %s" % n)
-						should_skip = true
-						break
-					
-					var execute_value = res.unwrap().execute([self])
-					if typeof(execute_value) == TYPE_BOOL:
-						match n:
-							PackageKeys.REQUIRED_WHEN:
-								if execute_value == false:
-									emit_signal("message_logged", "Skipping package %s because of %s condition" %
-											[package_name, n])
-									should_skip = true
-							PackageKeys.OPTIONAL_WHEN:
-								if execute_value == true:
-									emit_signal("message_logged", "Skipping package %s because of %s condition" %
-											[package_name, n])
-									should_skip = true
-
-					if should_skip:
-						break
-			if should_skip:
-				continue
-		else:
-			package_version = data
-		
 		
 		var download_location: String
 		var download_link: String
 
+		
+
+		var data: Dictionary = update_packages[package_name]
+
+		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
+		var cache_dir: String = ADDONS_DIR_FORMAT_CACHE % package_name.get_file()
+
+		var version = data["version"]
 		var integrity = ""
 
 		#------------
 		#That's to get link to tarball! Only for NPM
-		if (data is Dictionary) and (data.has("src")):
-			if data["src"] == "github":
-				emit_signal("message_logged", "Processing github")
-				download_location = ADDONS_DIR_FORMAT_CACHE % data["filename"]
-				download_link = data["url"]
-				GPMUtils.wget(download_link, download_location)
-			elif data["src"] == "tar":
+		match data["src"]:
+			"git":
 				emit_signal("message_logged", "Processing tar")
 				download_location = ADDONS_DIR_FORMAT_CACHE.replace("res://", "./") % package_name
 				download_link = data["url"]
-				GPMUtils.clone(download_link, download_location)
-		else:
-			var npm_manifest: Dictionary
-			emit_signal("message_logged", "Processing npm")
+			"tar": 
+				emit_signal("message_logged", "Processing github")
+				download_location = ADDONS_DIR_FORMAT_CACHE % data["filename"]
+				download_link = data["url"]
+			"npm":
+				var npm_manifest: Dictionary
+				emit_signal("message_logged", "Processing npm")
 
-			res = yield(GPMNpm.request_npm_manifest(package_name, package_version), "completed")
-			if not res or res.is_err():
-				failed_packages.add_response(package_name, res)
-				continue
-
-			npm_manifest = res.unwrap()
-			
-			download_link = npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL]
-
-			download_location = ADDONS_DIR_FORMAT_CACHE % download_link.get_file()
-			
-			#------------
-			# Check against lockfile and determine whether to continue or not
-			# If the directory does not exist, there's no need to do addtional checks
-			if dir.dir_exists(dir_name):
-				if not force:
-					if lock_file.has(package_name) and \
-							not _is_valid_new_package(lock_file[package_name], npm_manifest):
-						emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" %
-								[package_name, package_name])
-						continue
-
-				if GPMFs.remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
+				res = yield(GPMNpm.request_npm_manifest(package_name, data["version"]), "completed")
+				if not res or res.is_err():
 					failed_packages.add_response(package_name, res)
 					continue
-			
-			
-			#region Download tarball
-			res = GPMUtils.wget(download_link, download_location)
-			
-			if not res or res.is_err():
+
+				npm_manifest = res.unwrap()
+				
+				download_link = npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL]
+
+				download_location = ADDONS_DIR_FORMAT_CACHE % download_link.get_file()
+				
+				version = npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__")
+				integrity = npm_manifest.get(NpmManifestKeys.DIST, {}).get(NpmManifestKeys.INTEGRITY, "__MISSING__")
+		
+
+		#------------
+		# Check against lockfile and determine whether to continue or not
+		# If the directory does not exist, there's no need to do addtional checks
+		if dir.dir_exists(dir_name):
+			if not force:
+				if not _is_valid_new_package(lock_file, package_name, version, integrity):
+					emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" % [package_name, package_name])
+					continue
+
+			if GPMFs.remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
 				failed_packages.add_response(package_name, res)
 				continue
-			
-			integrity = npm_manifest["dist"]["integrity"] if npm_manifest["dist"].has("integrity") else ""
-			#endregion
+		
+		res = null
+		match data["src"]:
+			"tar", "npm":
+				res = GPMUtils.wget(download_link, download_location)
+			"git":
+				res = GPMUtils.clone(download_link, download_location)			
+
+		if not res or res.is_err():
+			failed_packages.add_response(package_name, res)
+			continue
+		
+		#endregion
 
 		# Creating directory to store the result
 		if not dir.dir_exists(dir_name):
@@ -540,7 +569,7 @@ func update(force: bool = false) -> GPMResult:
 		
 		# Saving lockfile
 		lock_file[package_name] = {
-			LockFileKeys.VERSION: package_version,
+			LockFileKeys.VERSION: data["version"],
 			LockFileKeys.INTEGRITY: integrity
 		}
 		
