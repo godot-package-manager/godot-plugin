@@ -28,7 +28,7 @@ static func xzf(file_path: String, output_path: String) -> GPMResult:
 		true,
 		output
 	)
-
+	
 	# `tar xzf` should not produce any output
 	if not output.empty() and not output.front().empty():
 		printerr(output)
@@ -43,6 +43,9 @@ static func xzf(file_path: String, output_path: String) -> GPMResult:
 ##
 ## @return: GPMResult[] - The result of the operation
 static func wget(file_path: String, output_path: String) -> GPMResult:
+	# output_path = ProjectSettings.globalize_path(output_path)
+	output_path = output_path.replace("res://", "")
+
 	print("wget: ", file_path, " || ", output_path)
 
 	var _output := []
@@ -52,7 +55,7 @@ static func wget(file_path: String, output_path: String) -> GPMResult:
 		[
 			file_path,
 			"-O",
-			output_path.replace("res://", "")
+			output_path
 		],
 		true,
 		_output
@@ -97,6 +100,28 @@ static func rm(file_path: String) -> GPMResult:
 		[
 			"-rf",
 			file_path
+		],
+		true,
+		_output
+	)
+	
+	return OK()
+
+## Mkdir
+##
+## @param: file_path: String - The relative file path to a tar file
+## @param: output_path: String - The file path to extract to
+##
+## @return: GPMResult[] - The result of the operation
+static func mk(file_path: String) -> GPMResult:
+
+	var _output := []
+
+	OS.execute(
+		"rm",
+		[
+			"-rf",
+			ProjectSettings.globalize_path(file_path)
 		],
 		true,
 		_output

@@ -11,6 +11,8 @@ signal operation_checkpoint_reached(package_name)
 ## Emitted when the package operation is complete
 signal operation_finished()
 
+const ADDONS_DIR_CACHE := "res://addons/.cache/"
+
 const ADDONS_DIR_FORMAT := "res://addons/%s"
 const ADDONS_DIR_FORMAT_CACHE := "res://addons/.cache/%s"
 
@@ -473,10 +475,10 @@ func update(force: bool = false) -> GPMResult:
 	# Used for compiling together all errors that may occur
 	var failed_packages := GPMFailedPackages.new()
 	
-	emit_signal("operation_checkpoint_reached", "Building list of packages to update")
+	emit_signal("message_logged", "Building list of packages to update")
 	var update_packages := list_packages_to_update(package_file, failed_packages)
-	emit_signal("operation_checkpoint_reached", "List of packages to update created")
-
+	emit_signal("message_logged", "List of packages to update created")
+	GPMUtils.mk(ADDONS_DIR_CACHE)
 	for package_name in update_packages:
 		emit_signal("operation_checkpoint_reached", package_name)
 		
@@ -502,26 +504,27 @@ func update(force: bool = false) -> GPMResult:
 				download_link = data["url"]
 			"tar": 
 				emit_signal("message_logged", "Working with github")
-				download_location = ADDONS_DIR_FORMAT_CACHE % data["filename"]
-				download_link = data["url"]
+				download_location = ADDONS_DIR_FORMAT_CACHE % (package_name+data["filename"])
+				download_link = data["dist"]
 			"npm":
 				var npm_manifest: Dictionary
 				emit_signal("message_logged", "Working with npm")
 
 				res = yield(GPMNpm.request_npm_manifest(package_name, data["version"]), "completed")
+
 				if not res or res.is_err():
 					failed_packages.add_response(package_name, res)
 					should_skip = true
-					break
+				else:
+					emit_signal("message_logged", "Downloaded npm manifest")
+					npm_manifest = res.unwrap()
+					
+					download_link = npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL]
 
-				npm_manifest = res.unwrap()
-				
-				download_link = npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL]
-
-				download_location = ADDONS_DIR_FORMAT_CACHE % download_link.get_file()
-				
-				version = npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__")
-				integrity = npm_manifest.get(NpmManifestKeys.DIST, {}).get(NpmManifestKeys.INTEGRITY, "__MISSING__")
+					download_location = ADDONS_DIR_FORMAT_CACHE % download_link.get_file()
+					
+					version = npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__")
+					integrity = npm_manifest.get(NpmManifestKeys.DIST, {}).get(NpmManifestKeys.INTEGRITY, "__MISSING__")
 		
 		if should_skip:
 			emit_signal("message_logged", "Skipping %s" % package_name)
@@ -539,52 +542,63 @@ func update(force: bool = false) -> GPMResult:
 					continue
 
 			if GPMFs.remove_dir_recursive(ProjectSettings.globalize_path(dest)) != OK:
+				emit_signal("message_logged", "Can't delete folder Skipping %s" % package_name)
 				failed_packages.add_response(package_name, res)
 				continue
 	
-		# Creating directory to store the result
-		if not dir.dir_exists(dest):
-			if dir.make_dir_recursive(dest) != OK:
-				failed_packages.add(package_name, "Unable to create directory")
-				continue
+		
+		# Creating cache to store the result
+		if not dir.dir_exists(ADDONS_DIR_CACHE):
+			dir.make_dir_recursive(ADDONS_DIR_CACHE)
 
 		res = null
-		
-		match data["src"]:
-			"tar", "npm":
-				emit_signal("message_logged", "Downloading through wget %s" % package_name)
-				res = GPMUtils.wget(download_link, download_location)
 
-				if not res or res.is_err():
-					failed_packages.add_response(package_name, res)
-					continue
-				
-				emit_signal("message_logged", " Unzipping %s" % package_name)
-				res = GPMUtils.xzf(download_location, dir_name)
-				if not res or res.is_err():
-					failed_packages.add_response(package_name, res)
+		if data["src"] in ["tar", "npm"]:
+			emit_signal("message_logged", "Downloading through wget %s" % package_name)
+			res = GPMUtils.wget(download_link, download_location)
+
+			if not res or res.is_err():
+				failed_packages.add_response(package_name, res)
+				continue
+			
+			emit_signal("message_logged", " Creating cache directory for %s" % package_name)
+			if not dir.dir_exists(cache_dir):
+				if dir.make_dir_recursive(cache_dir) != OK:
+					failed_packages.add_response(package_name, "Can't create cache dir")
 					continue
 
-			"git":
-				emit_signal("message_logged", " Cloning %s" % package_name)
-				res = GPMUtils.clone(download_link, download_location)			
-				if not res or res.is_err():
-					failed_packages.add_response(package_name, res)
-					continue
+			emit_signal("message_logged", " Unzipping %s" % package_name)
+			res = GPMUtils.xzf(download_location, cache_dir)
+			if not res or res.is_err():
+				failed_packages.add_response(package_name, res)
+				continue
+		elif data["src"] in ["git"]:
+			emit_signal("message_logged", " Cloning %s" % package_name)
+			res = GPMUtils.clone(download_link, download_location)			
+			if not res or res.is_err():
+				failed_packages.add_response(package_name, res)
+				continue
 		
+		# # Creating directory to store the result
+		# if not dir.dir_exists(dest):
+		# 	if dir.make_dir_recursive(dest) != OK:
+		# 		emit_signal("message_logged", "Can't create folder Skipping %s" % package_name)
+		# 		failed_packages.add(package_name, "Unable to create directory")
+		# 		continue
+
 		#endregion
-		
-		# Removing cache
-		if dir.remove(download_location) != OK:
-			failed_packages.add(package_name, "Failed to remove tarball")
-			continue
 		
 		# Saving lockfile
 		lock_file[package_name] = {
 			LockFileKeys.VERSION: data["version"],
 			LockFileKeys.INTEGRITY: integrity
 		}
-		
+	
+	# # Removing cache
+		if dir.remove(ADDONS_DIR_CACHE) != OK:
+			failed_packages.add(package_name, "Failed to remove cache")
+			continue
+
 	emit_signal("operation_finished")
 	
 	var post_update_res = hooks.run(self, ValidHooks.POST_UPDATE)
