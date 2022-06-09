@@ -593,6 +593,9 @@ func update(force: bool = false) -> GPMResult:
 			LockFileKeys.VERSION: data["version"],
 			LockFileKeys.INTEGRITY: integrity
 		}
+		res = write_config(LOCK_FILE, lock_file)
+		if not res or res.is_err():
+			failed_packages.add(package_name, "Unable to write configs")
 	
 	# # Removing cache
 		if dir.remove(ADDONS_DIR_CACHE) != OK:
@@ -609,9 +612,6 @@ func update(force: bool = false) -> GPMResult:
 	if failed_packages.has_logs():
 		return GPMUtils.ERR(GPMError.Code.PROCESS_PACKAGES_FAILURE, failed_packages.get_logs())
 
-	res = write_config(LOCK_FILE, lock_file)
-	if not res or res.is_err():
-		return res if res else GPMUtils.ERR(GPMError.Code.GENERIC, "Unable to write configs")
 
 	return GPMUtils.OK()
 
