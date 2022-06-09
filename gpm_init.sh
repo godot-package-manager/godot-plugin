@@ -68,7 +68,7 @@ if ! test -f "$GPM_FILE"; then
     wget $exec_file_url
 fi
 
-chmod +x ./GPM_FILE
+chmod +x ./$GPM_FILE
 
 # #TBD autoactivate plagin in godot.project
 #TBD add to .gitignore
