@@ -598,15 +598,15 @@ func update(force: bool = false) -> GPMResult:
 		# Saving lockfile
 		lock_file[package_name] = {
 			LockFileKeys.VERSION: data["version"],
-			LockFileKeys.INTEGRITY: integrity
+			LockFileKeys.INTEGRITY: integrity,
+			"path": src
 		}
 		res = write_config(LOCK_FILE, lock_file)
 		if not res or res.is_err():
 			failed_packages.add(package_name, "Unable to write configs")
 	
 # # Removing cache
-	if dir.remove(ADDONS_DIR_CACHE) != OK:
-		emit_signal("message_logged", "Failed to remove cache")
+	GPMUtils.rm(ADDONS_DIR_CACHE)
 
 	emit_signal("operation_finished")
 	
