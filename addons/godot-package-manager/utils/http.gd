@@ -14,17 +14,30 @@ const HEADERS := [
 	"Accept: */*"
 ]
 
+## Get's hostname from url
+##
+## @param: url: String - The relative file path to a tar file
+##
+## @return: String - The result of the operation
 
-static func save_data(data: PoolByteArray, path: String) -> GPMResult:
-	var file := File.new()
-	if file.open(path, File.WRITE) != OK:
-		return GPMUtils.ERR(GPMError.Code.FILE_OPEN_FAILURE, path)
+static func hostname(url: String) -> String:
+	var protocol = url.split("//")[0]
+	var full_protocol = protocol + "//"
 
-	file.store_buffer(data)
+	var hostname = full_protocol+url.replace(full_protocol, "").split("/")[0]
 
-	file.close()
-	
-	return GPMUtils.OK()
+	return hostname
+
+## Get's path from url
+##
+## @param: url: String - The relative file path to a tar file
+##
+## @return: String - The result of the operation
+
+static func path(url: String) -> String:
+	return url.replace(hostname(url), "").split("/")[0]
+
+## ####################################
 
 static func download(url, dest):
 	#region Download tarball
@@ -34,7 +47,7 @@ static func download(url, dest):
 
 	var downloaded_file = res.unwrap()
 	
-	return save_data(downloaded_file, dest)
+	return GPMFs.save_data(downloaded_file, dest)
 
 #region REST
 
@@ -46,8 +59,8 @@ static func download(url, dest):
 ## @return: GPMResult[PoolByteArray] - The response body
 static func send_get_request(url: String) -> GPMResult:
 	
-	var host = GPMUtils.hostname(url)
-	var path = GPMUtils.path(url)
+	var host = hostname(url)
+	var path = path(url)
 
 	var http := HTTPClient.new()
 

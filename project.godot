@@ -30,6 +30,11 @@ _global_script_classes=[ {
 "path": "res://addons/godot-package-manager/classes/failed-packages.gd"
 }, {
 "base": "Reference",
+"class": "GPMFs",
+"language": "GDScript",
+"path": "res://addons/godot-package-manager/utils/fs.gd"
+}, {
+"base": "Reference",
 "class": "GPMHooks",
 "language": "GDScript",
 "path": "res://addons/godot-package-manager/classes/hooks.gd"
@@ -59,6 +64,7 @@ _global_script_class_icons={
 "GPMAdvancedExpression": "",
 "GPMError": "",
 "GPMFailedPackages": "",
+"GPMFs": "",
 "GPMHooks": "",
 "GPMHttp": "",
 "GPMNpm": "",

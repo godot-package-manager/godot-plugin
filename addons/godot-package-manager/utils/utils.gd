@@ -128,26 +128,3 @@ static func clone(file_path: String, output_path: String) -> GPMResult:
 	)
 	print("Clone: ", file_path, " || ", output_path, " || ", _output)
 	return OK()
-	
-## Get's hostname from url
-##
-## @param: url: String - The relative file path to a tar file
-##
-## @return: String - The result of the operation
-
-static func hostname(url: String) -> String:
-	var protocol = url.split("//")[0]
-	var full_protocol = protocol + "//"
-
-	var hostname = full_protocol+url.replace(full_protocol, "").split("/")[0]
-
-	return hostname
-
-## Get's path from url
-##
-## @param: url: String - The relative file path to a tar file
-##
-## @return: String - The result of the operation
-
-static func path(url: String) -> String:
-	return url.replace(hostname(url), "").split("/")[0]

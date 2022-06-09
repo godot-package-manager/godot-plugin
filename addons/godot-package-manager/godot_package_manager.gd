@@ -11,9 +11,6 @@ signal operation_checkpoint_reached(package_name)
 ## Emitted when the package operation is complete
 signal operation_finished()
 
-#region Constants
-
-
 const ADDONS_DIR_FORMAT := "res://addons/%s"
 const ADDONS_DIR_FORMAT_CACHE := "res://addons/.cache/%s"
 
@@ -101,85 +98,7 @@ static func _is_valid_new_package(lock_file: Dictionary, npm_manifest: Dictionar
 
 
 
-#region Directory utils
 
-## Recursively finds all files in a directory. Nested directories are represented by further dicts
-##
-## @param: original_path: String - The absolute, root path of the directory. Used to strip out the full path
-## @param: path: String - The current, absoulute search path
-##
-## @return: Dictionary<Dictionary> - The files + directories in the current `path`
-##
-## @example: original_path: /my/path/to/
-##	{
-##		"nested": {
-##			"hello.gd": "/my/path/to/nested/hello.gd"
-##		},
-##		"file.gd": "/my/path/to/file.gd"
-###	}
-static func _get_files_recursive_inner(original_path: String, path: String) -> Dictionary:
-	var r := {}
-	
-	var dir := Directory.new()
-	if dir.open(path) != OK:
-		printerr("Failed to open directory path: %s" % path)
-		return r
-	
-	dir.list_dir_begin(true, false)
-	
-	var file_name := dir.get_next()
-	
-	while file_name != "":
-		var full_path := dir.get_current_dir().plus_file(file_name)
-		if dir.current_is_dir():
-			r[path.replace(original_path, "").plus_file(file_name)] = _get_files_recursive_inner(original_path, full_path)
-		else:
-			r[file_name] = full_path
-		
-		file_name = dir.get_next()
-	
-	return r
-
-## Wrapper for _get_files_recursive(..., ...) omitting the `original_path` arg.
-##
-## @param: path: String - The path to search
-##
-## @return: Dictionary<Dictionary> - A recursively `Dictionary` of all files found at `path`
-static func _get_files_recursive(path: String) -> Dictionary:
-	return _get_files_recursive_inner(path, path)
-
-## Removes a directory recursively
-##
-## @param: path: String - The path to remove
-## @param: delete_base_dir: bool - Whether to remove the root directory at path as well
-## @param: file_dict: Dictionary - The result of `_get_files_recursive` if available
-##
-## @return: int - The error code
-static func _remove_dir_recursive(path: String, delete_base_dir: bool = true, file_dict: Dictionary = {}) -> int:
-	var files := _get_files_recursive(path) if file_dict.empty() else file_dict
-	
-	var dir := Directory.new()
-	
-	for key in files.keys():
-		var file_path: String = path.plus_file(key)
-		var val = files[key]
-		
-		if val is Dictionary:
-			if _remove_dir_recursive(file_path, false) != OK:
-				printerr("Unable to remove_dir_recursive")
-				return ERR_BUG
-		
-		if dir.remove(file_path) != OK:
-			printerr("Unable to remove file at path: %s" % file_path)
-			return ERR_BUG
-	
-	if delete_base_dir and dir.remove(path) != OK:
-		printerr("Unable to remove file at path: %s" % path)
-		return ERR_BUG
-	
-	return OK
-
-#endregion
 
 #region Scripts
 
@@ -465,10 +384,13 @@ func update(force: bool = false) -> GPMResult:
 	
 	# Used for compiling together all errors that may occur
 	var failed_packages := GPMFailedPackages.new()
+
+
 	for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
 		emit_signal("operation_checkpoint_reached", package_name)
 
 		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
+		var cache_dir: String = ADDONS_DIR_FORMAT_CACHE % package_name.get_file()
 		var package_version := ""
 
 		var data = package_file[PackageKeys.PACKAGES][package_name]
@@ -476,7 +398,7 @@ func update(force: bool = false) -> GPMResult:
 			
 			package_version = data.get(PackageKeys.VERSION, "")
 			if package_version.empty():
-				failed_packages.add(package_name, res.unwrap_err().to_string())
+				failed_packages.add_response(package_name, res)
 				continue
 			
 			# Keep track of whether we should skip to the next item
@@ -494,21 +416,21 @@ func update(force: bool = false) -> GPMResult:
 							body = value
 						elif type == "script_name":
 							if not package_file[PackageKeys.SCRIPTS].has(value):
-								failed_packages.add(package_name, "Script does not exist %s" % value)
+								failed_packages.add_response(package_name, "Script does not exist %s" % value)
 								should_skip = true
 								break
 
 							body = package_file[PackageKeys.SCRIPTS][value]
 						else:
 							# Invalid type, assume the entire block is bad
-							failed_packages.add(package_name, "Invalid type %s, bailing out" % type)
+							failed_packages.add_response(package_name, "Invalid type %s, bailing out" % type)
 							should_skip = true
 							break
 					else:
 						body = body_data
 					res = _build_script(body if body is String else PoolStringArray(body).join("\n"))
 					if res.is_err():
-						failed_packages.add(package_name, "Failed to parse section %s" % n)
+						failed_packages.add_response(package_name, "Failed to parse section %s" % n)
 						should_skip = true
 						break
 					
@@ -546,17 +468,18 @@ func update(force: bool = false) -> GPMResult:
 				emit_signal("message_logged", "Processing github")
 				download_location = ADDONS_DIR_FORMAT_CACHE % data["filename"]
 				download_link = data["url"]
-				GPMUtils.wget(data["dist"], download_location)
-			elif data["src"] == "git":
-				emit_signal("message_logged", "Processing git")
+				GPMUtils.wget(download_link, download_location)
+			elif data["src"] == "tar":
+				emit_signal("message_logged", "Processing tar")
 				download_location = ADDONS_DIR_FORMAT_CACHE.replace("res://", "./") % package_name
-				
-				GPMUtils.clone(data["url"], download_location)
+				download_link = data["url"]
+				GPMUtils.clone(download_link, download_location)
 		else:
 			emit_signal("message_logged", "Processing npm")
+
 			res = yield(GPMNpm.request_npm_manifest(package_name, package_version), "completed")
 			if not res or res.is_err():
-				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
+				failed_packages.add_response(package_name, res)
 				continue
 
 			npm_manifest = res.unwrap()
@@ -576,16 +499,17 @@ func update(force: bool = false) -> GPMResult:
 								[package_name, package_name])
 						continue
 
-				if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
-					failed_packages.add(package_name, "Unable to remove old files")
+				if GPMFs.remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
+					failed_packages.add_response(package_name, res)
 					continue
 			
 			
 			#region Download tarball
-			res = GPMHttp.download(download_link, download_location)
+			res = GPMUtils.wget(download_link, download_location)
+			
 			
 			if not res or res.is_err():
-				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
+				failed_packages.add_response(package_name, res)
 				continue
 			
 			integrity = npm_manifest["dist"]["integrity"] if npm_manifest["dist"].has("integrity") else ""
@@ -601,7 +525,7 @@ func update(force: bool = false) -> GPMResult:
 		if download_link:
 			res = GPMUtils.xzf(download_location, dir_name)
 			if not res or res.is_err():
-				failed_packages.add(package_name, res.unwrap_err().to_string() if res else GPMUtils.DEFAULT_ERROR)
+				failed_packages.add_response(package_name, res)
 				continue
 		
 			# Removing cache
@@ -614,7 +538,7 @@ func update(force: bool = false) -> GPMResult:
 			LockFileKeys.VERSION: package_version,
 			LockFileKeys.INTEGRITY: integrity
 		}
-		print("3")
+		
 	emit_signal("operation_finished")
 	
 	var post_update_res = hooks.run(self, ValidHooks.POST_UPDATE)
@@ -667,7 +591,7 @@ func purge() -> GPMResult:
 		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
 
 		if dir.dir_exists(dir_name):
-			if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
+			if GPMFs.remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
 				failed_packages.add(package_name, "Unable to remove directory")
 				continue
 	
