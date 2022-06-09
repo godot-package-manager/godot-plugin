@@ -491,27 +491,28 @@ func update(force: bool = false) -> GPMResult:
 		var version = data["version"]
 		var integrity = ""
 
-		
-
 		#------------
 		#That's to get link to tarball! Only for NPM
+		var should_skip = false
+
 		match data["src"]:
 			"git":
-				emit_signal("message_logged", "Processing tar")
+				emit_signal("message_logged", "Working with tar")
 				download_location = ADDONS_DIR_FORMAT_CACHE.replace("res://", "./") % package_name
 				download_link = data["url"]
 			"tar": 
-				emit_signal("message_logged", "Processing github")
+				emit_signal("message_logged", "Working with github")
 				download_location = ADDONS_DIR_FORMAT_CACHE % data["filename"]
 				download_link = data["url"]
 			"npm":
 				var npm_manifest: Dictionary
-				emit_signal("message_logged", "Processing npm")
+				emit_signal("message_logged", "Working with npm")
 
 				res = yield(GPMNpm.request_npm_manifest(package_name, data["version"]), "completed")
 				if not res or res.is_err():
 					failed_packages.add_response(package_name, res)
-					continue
+					should_skip = true
+					break
 
 				npm_manifest = res.unwrap()
 				
@@ -522,6 +523,10 @@ func update(force: bool = false) -> GPMResult:
 				version = npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__")
 				integrity = npm_manifest.get(NpmManifestKeys.DIST, {}).get(NpmManifestKeys.INTEGRITY, "__MISSING__")
 		
+		if should_skip:
+			emit_signal("message_logged", "Skipping %s" % package_name)
+			continue
+
 		var dest = data["subdir"] if data.has("subdir") else dir_name
 
 		#------------
@@ -544,20 +549,24 @@ func update(force: bool = false) -> GPMResult:
 				continue
 
 		res = null
+		
 		match data["src"]:
 			"tar", "npm":
+				emit_signal("message_logged", "Downloading through wget %s" % package_name)
 				res = GPMUtils.wget(download_link, download_location)
 
 				if not res or res.is_err():
 					failed_packages.add_response(package_name, res)
 					continue
-
+				
+				emit_signal("message_logged", " Unzipping %s" % package_name)
 				res = GPMUtils.xzf(download_location, dir_name)
 				if not res or res.is_err():
 					failed_packages.add_response(package_name, res)
 					continue
 
 			"git":
+				emit_signal("message_logged", " Cloning %s" % package_name)
 				res = GPMUtils.clone(download_link, download_location)			
 				if not res or res.is_err():
 					failed_packages.add_response(package_name, res)
@@ -565,9 +574,6 @@ func update(force: bool = false) -> GPMResult:
 		
 		#endregion
 		
-		
-		
-			
 		# Removing cache
 		if dir.remove(download_location) != OK:
 			failed_packages.add(package_name, "Failed to remove tarball")
