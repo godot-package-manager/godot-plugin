@@ -483,8 +483,6 @@ func update(force: bool = false) -> GPMResult:
 		var download_location: String
 		var download_link: String
 
-		
-
 		var data: Dictionary = update_packages[package_name]
 
 		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
@@ -492,6 +490,8 @@ func update(force: bool = false) -> GPMResult:
 
 		var version = data["version"]
 		var integrity = ""
+
+		
 
 		#------------
 		#That's to get link to tarball! Only for NPM
@@ -522,50 +522,56 @@ func update(force: bool = false) -> GPMResult:
 				version = npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__")
 				integrity = npm_manifest.get(NpmManifestKeys.DIST, {}).get(NpmManifestKeys.INTEGRITY, "__MISSING__")
 		
+		var dest = data["subdir"] if data.has("subdir") else dir_name
 
 		#------------
 		# Check against lockfile and determine whether to continue or not
 		# If the directory does not exist, there's no need to do addtional checks
-		if dir.dir_exists(dir_name):
+		if dir.dir_exists(dest):
 			if not force:
 				if not _is_valid_new_package(lock_file, package_name, version, integrity):
 					emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" % [package_name, package_name])
 					continue
 
-			if GPMFs.remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
+			if GPMFs.remove_dir_recursive(ProjectSettings.globalize_path(dest)) != OK:
 				failed_packages.add_response(package_name, res)
 				continue
-		
+	
+		# Creating directory to store the result
+		if not dir.dir_exists(dest):
+			if dir.make_dir_recursive(dest) != OK:
+				failed_packages.add(package_name, "Unable to create directory")
+				continue
+
 		res = null
 		match data["src"]:
 			"tar", "npm":
 				res = GPMUtils.wget(download_link, download_location)
+
+				if not res or res.is_err():
+					failed_packages.add_response(package_name, res)
+					continue
+
+				res = GPMUtils.xzf(download_location, dir_name)
+				if not res or res.is_err():
+					failed_packages.add_response(package_name, res)
+					continue
+
 			"git":
 				res = GPMUtils.clone(download_link, download_location)			
-
-		if not res or res.is_err():
-			failed_packages.add_response(package_name, res)
-			continue
+				if not res or res.is_err():
+					failed_packages.add_response(package_name, res)
+					continue
 		
 		#endregion
-
-		# Creating directory to store the result
-		if not dir.dir_exists(dir_name):
-			if dir.make_dir_recursive(dir_name) != OK:
-				failed_packages.add(package_name, "Unable to create directory")
-				continue
 		
-		# Unpacking
-		if download_link:
-			res = GPMUtils.xzf(download_location, dir_name)
-			if not res or res.is_err():
-				failed_packages.add_response(package_name, res)
-				continue
 		
-			# Removing cache
-			if dir.remove(download_location) != OK:
-				failed_packages.add(package_name, "Failed to remove tarball")
-				continue
+		
+			
+		# Removing cache
+		if dir.remove(download_location) != OK:
+			failed_packages.add(package_name, "Failed to remove tarball")
+			continue
 		
 		# Saving lockfile
 		lock_file[package_name] = {
