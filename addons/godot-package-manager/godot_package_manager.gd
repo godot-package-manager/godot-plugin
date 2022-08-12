@@ -62,7 +62,7 @@ class Error:
 	func error_description() -> String:
 		return _description
 
-class Result:
+class PackageResult:
 	var _value
 	var _error: Error
 
@@ -99,12 +99,12 @@ class Result:
 	func or_else(val):
 		return _value if is_ok() else val
 
-	static func ok(v = null) -> Result:
-		var res = Result.new(OK)
-		return Result.new(v if v != null else OK)
+	static func ok(v = null) -> PackageResult:
+		var res = PackageResult.new(OK)
+		return PackageResult.new(v if v != null else OK)
 
-	static func err(error_code: int = 1, description: String = "") -> Result:
-		return Result.new(Error.new(error_code, description))
+	static func err(error_code: int = 1, description: String = "") -> PackageResult:
+		return PackageResult.new(Error.new(error_code, description))
 
 #endregion
 
@@ -440,8 +440,8 @@ const ValidHooks := {
 ## Reads all relevant config files
 ## Empty or missing configs are not considered errors
 ##
-## @return: Result<Tuple<Dictionary, Dictionary>> - A tuple-like structure containing the relevant files
-static func _read_all_configs() -> Result:
+## @return: PackageResult<Tuple<Dictionary, Dictionary>> - A tuple-like structure containing the relevant files
+static func _read_all_configs() -> PackageResult:
 	var package_file := {}
 
 	var res := read_config(PACKAGE_FILE)
@@ -454,18 +454,18 @@ static func _read_all_configs() -> Result:
 	if res.is_ok():
 		lock_file = res.unwrap()
 
-	return Result.ok([package_file, lock_file])
+	return PackageResult.ok([package_file, lock_file])
 
-static func _save_data(data: PoolByteArray, path: String) -> Result:
+static func _save_data(data: PoolByteArray, path: String) -> PackageResult:
 	var file := File.new()
 	if file.open(path, File.WRITE) != OK:
-		return Result.err(Error.Code.FILE_OPEN_FAILURE, path)
+		return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, path)
 
 	file.store_buffer(data)
 
 	file.close()
 	
-	return Result.ok()
+	return PackageResult.ok()
 
 static func _is_valid_new_package(lock_file: Dictionary, npm_manifest: Dictionary) -> bool:
 	if lock_file.get(LockFileKeys.VERSION, "") == npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__"):
@@ -483,34 +483,34 @@ static func _is_valid_new_package(lock_file: Dictionary, npm_manifest: Dictionar
 ## @param: host: String - The host to connect to
 ## @param: path: String - The host path
 ##
-## @return: Result[PoolByteArray] - The response body
-static func _send_get_request(host: String, path: String) -> Result:
+## @return: PackageResult[PoolByteArray] - The response body
+static func _send_get_request(host: String, path: String) -> PackageResult:
 	var http := HTTPClient.new()
 
 	var err := http.connect_to_host(host, 443, true)
 	if err != OK:
-		return Result.err(Error.Code.CONNECT_TO_HOST_FAILURE, host)
+		return PackageResult.err(Error.Code.CONNECT_TO_HOST_FAILURE, host)
 
 	while http.get_status() in CONNECTING_STATUS:
 		http.poll()
 		yield(Engine.get_main_loop(), "idle_frame")
 
 	if http.get_status() != HTTPClient.STATUS_CONNECTED:
-		return Result.err(Error.Code.UNABLE_TO_CONNECT_TO_HOST, host)
+		return PackageResult.err(Error.Code.UNABLE_TO_CONNECT_TO_HOST, host)
 
 	err = http.request(HTTPClient.METHOD_GET, "/%s" % path, HEADERS)
 	if err != OK:
-		return Result.err(Error.Code.GET_REQUEST_FAILURE, path)
+		return PackageResult.err(Error.Code.GET_REQUEST_FAILURE, path)
 
 	while http.get_status() == HTTPClient.STATUS_REQUESTING:
 		http.poll()
 		yield(Engine.get_main_loop(), "idle_frame")
 
 	if not http.get_status() in SUCCESS_STATUS:
-		return Result.err(Error.Code.UNSUCCESSFUL_REQUEST, path)
+		return PackageResult.err(Error.Code.UNSUCCESSFUL_REQUEST, path)
 
 	if http.get_response_code() != 200:
-		return Result.err(Error.Code.UNEXPECTED_STATUS_CODE, "%s - %d" % [path, http.get_response_code()])
+		return PackageResult.err(Error.Code.UNEXPECTED_STATUS_CODE, "%s - %d" % [path, http.get_response_code()])
 
 	var body := PoolByteArray()
 
@@ -523,9 +523,9 @@ static func _send_get_request(host: String, path: String) -> Result:
 		else:
 			body.append_array(chunk)
 
-	return Result.ok(body)
+	return PackageResult.ok(body)
 
-static func _request_npm_manifest(package_name: String, package_version: String) -> Result:
+static func _request_npm_manifest(package_name: String, package_version: String) -> PackageResult:
 	var res = yield(_send_get_request(REGISTRY, "%s/%s" % [package_name, package_version]), "completed")
 	if res.is_err():
 		return res
@@ -533,14 +533,14 @@ static func _request_npm_manifest(package_name: String, package_version: String)
 	var body: String = res.unwrap().get_string_from_utf8()
 	var parse_res := JSON.parse(body)
 	if parse_res.error != OK or not parse_res.result is Dictionary:
-		return Result.err(Error.Code.UNEXPECTED_DATA, "%s - Unexpected json" % package_name)
+		return PackageResult.err(Error.Code.UNEXPECTED_DATA, "%s - Unexpected json" % package_name)
 
 	var npm_manifest: Dictionary = parse_res.result
 
 	if not npm_manifest.has("dist") and not npm_manifest["dist"].has("tarball"):
-		return Result.err(Error.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields" % package_name)
+		return PackageResult.err(Error.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields" % package_name)
 
-	return Result.ok(npm_manifest)
+	return PackageResult.ok(npm_manifest)
 
 #endregion
 
@@ -626,7 +626,7 @@ static func _remove_dir_recursive(path: String, delete_base_dir: bool = true, fi
 
 #region Scripts
 
-static func _clean_text(text: String) -> Result:
+static func _clean_text(text: String) -> PackageResult:
 	var whitespace_regex := RegEx.new()
 	whitespace_regex.compile("\\B(\\s+)\\b")
 
@@ -634,7 +634,7 @@ static func _clean_text(text: String) -> Result:
 
 	var split: PoolStringArray = text.split("\n")
 	if split.empty():
-		return Result.err(Error.Code.MISSING_SCRIPT)
+		return PackageResult.err(Error.Code.MISSING_SCRIPT)
 	
 	var first_line := ""
 	for i in split:
@@ -647,7 +647,7 @@ static func _clean_text(text: String) -> Result:
 	# It's also possible spaces are used instead of tabs, so check for spaces as well
 	var regex_match := whitespace_regex.search(first_line)
 	if regex_match == null:
-		return Result.ok(split)
+		return PackageResult.ok(split)
 
 	var empty_prefix: String = regex_match.get_string()
 
@@ -656,14 +656,14 @@ static func _clean_text(text: String) -> Result:
 		# will always have a proper new line character
 		r.append(i.trim_prefix(empty_prefix))
 
-	return Result.ok(r)
+	return PackageResult.ok(r)
 
 ## Build a script from a `String`
 ##
 ## @param: text: String - The code to build and compile
 ##
-## @return: Result<AdvancedExpression> - The compiled script
-static func _build_script(text: String) -> Result:
+## @return: PackageResult<AdvancedExpression> - The compiled script
+static func _build_script(text: String) -> PackageResult:
 	var ae := AdvancedExpression.new()
 
 	var clean_res := _clean_text(text)
@@ -678,16 +678,16 @@ static func _build_script(text: String) -> Result:
 		ae.add(line)
 
 	if ae.compile() != OK:
-		return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, "_build_script")
+		return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, "_build_script")
 
-	return Result.ok(ae)
+	return PackageResult.ok(ae)
 
 ## Parse all hooks. Failures cause the entire function to short-circuit
 ##
 ## @param: data: Dictionary - The entire package dictionary
 ##
-## @return: Result<Hooks> - The result of the operation
-static func _parse_hooks(data: Dictionary) -> Result:
+## @return: PackageResult<Hooks> - The result of the operation
+static func _parse_hooks(data: Dictionary) -> PackageResult:
 	var hooks := Hooks.new()
 
 	var file_hooks: Dictionary = data.get(PackageKeys.HOOKS, {})
@@ -702,7 +702,7 @@ static func _parse_hooks(data: Dictionary) -> Result:
 			TYPE_ARRAY:
 				var res = _build_script(PoolStringArray(val).join("\n"))
 				if res.is_err():
-					return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
+					return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
 				hooks.add(key, res.unwrap())
 			TYPE_DICTIONARY:
 				var type = val.get("type", "")
@@ -710,25 +710,25 @@ static func _parse_hooks(data: Dictionary) -> Result:
 				if type == "script":
 					var res = _build_script(value)
 					if res.is_err():
-						return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
+						return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
 					hooks.add(key, res.unwrap())
 				elif type == "script_name":
 					if not data[PackageKeys.SCRIPTS].has(value):
-						return Result.err(Error.Code.MISSING_SCRIPT, key)
+						return PackageResult.err(Error.Code.MISSING_SCRIPT, key)
 					
 					var res = _build_script(data[PackageKeys.SCRIPTS][value])
 					if res.is_err():
-						return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
+						return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
 					hooks.add(key, res.unwrap())
 				else:
-					return Result.err(Error.Code.BAD_SCRIPT_TYPE, value)
+					return PackageResult.err(Error.Code.BAD_SCRIPT_TYPE, value)
 			_:
 				var res = _build_script(val)
 				if res.is_err():
-					return Result.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
+					return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
 				hooks.add(key, res.unwrap())
 
-	return Result.ok(hooks)
+	return PackageResult.ok(hooks)
 
 #endregion
 
@@ -741,8 +741,8 @@ static func _parse_hooks(data: Dictionary) -> Result:
 ## @param: file_path: String - The relative file path to a tar file
 ## @param: output_path: String - The file path to extract to
 ##
-## @return: Result[] - The result of the operation
-static func xzf(file_path: String, output_path: String) -> Result:
+## @return: PackageResult[] - The result of the operation
+static func xzf(file_path: String, output_path: String) -> PackageResult:
 	var output := []
 	OS.execute(
 		"tar",
@@ -760,9 +760,9 @@ static func xzf(file_path: String, output_path: String) -> Result:
 	# `tar xzf` should not produce any output
 	if not output.empty() and not output.front().empty():
 		printerr(output)
-		return Result.err(Error.Code.GENERIC, "Tar failed")
+		return PackageResult.err(Error.Code.GENERIC, "Tar failed")
 
-	return Result.ok()
+	return PackageResult.ok()
 
 #region Config handling
 
@@ -770,49 +770,49 @@ static func xzf(file_path: String, output_path: String) -> Result:
 ##
 ## @param: file_name: String - Either the PACKAGE_FILE or the LOCK_FILE
 ##
-## @return: Result<Dictionary> - The contents of the config file
-static func read_config(file_name: String) -> Result:
+## @return: PackageResult<Dictionary> - The contents of the config file
+static func read_config(file_name: String) -> PackageResult:
 	if not file_name in [PACKAGE_FILE, LOCK_FILE]:
-		return Result.err(Error.Code.GENERIC, "Unrecognized file %s" % file_name)
+		return PackageResult.err(Error.Code.GENERIC, "Unrecognized file %s" % file_name)
 
 	var file := File.new()
 	if file.open(file_name, File.READ) != OK:
-		return Result.err(Error.Code.FILE_OPEN_FAILURE, file_name)
+		return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, file_name)
 
 	var parse_result := JSON.parse(file.get_as_text())
 	if parse_result.error != OK:
-		return Result.err(Error.Code.PARSE_FAILURE, file_name)
+		return PackageResult.err(Error.Code.PARSE_FAILURE, file_name)
 
 	# Closing to save on memory I guess
 	file.close()
 
 	var data = parse_result.result
 	if not data is Dictionary:
-		return Result.err(Error.Code.UNEXPECTED_DATA, file_name)
+		return PackageResult.err(Error.Code.UNEXPECTED_DATA, file_name)
 
 	if file_name == PACKAGE_FILE and data.get(PackageKeys.PACKAGES, {}).empty():
-		return Result.err(Error.Code.NO_PACKAGES, file_name)
+		return PackageResult.err(Error.Code.NO_PACKAGES, file_name)
 
-	return Result.ok(data)
+	return PackageResult.ok(data)
 
 ## Writes a `Dictionary` to a specified file_name in the project root
 ##
 ## @param: file_name: String - Either the `PACKAGE_FILE` or the `LOCK_FILE`
 ##
-## @result: Result<()> - The result of the operation
-static func write_config(file_name: String, data: Dictionary) -> Result:
+## @result: PackageResult<()> - The result of the operation
+static func write_config(file_name: String, data: Dictionary) -> PackageResult:
 	if not file_name in [PACKAGE_FILE, LOCK_FILE]:
-		return Result.err(Error.Code.GENERIC, "Unrecognized file %s" % file_name)
+		return PackageResult.err(Error.Code.GENERIC, "Unrecognized file %s" % file_name)
 
 	var file := File.new()
 	if file.open(file_name, File.WRITE) != OK:
-		return Result.err(Error.Code.FILE_OPEN_FAILURE, file_name)
+		return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, file_name)
 
 	file.store_string(JSON.print(data, "\t"))
 
 	file.close()
 
-	return Result.ok()
+	return PackageResult.ok()
 
 #endregion
 
@@ -822,11 +822,11 @@ func print(text: String) -> void:
 
 ## Reads the config files and returns the operation that would have been taken for each package
 ##
-## @return: Result<Dictionary> - The actions that would have been taken or OK
-func dry_run() -> Result:
+## @return: PackageResult<Dictionary> - The actions that would have been taken or OK
+func dry_run() -> PackageResult:
 	var res := _read_all_configs()
 	if not res:
-		return Result.err(Error.Code.GENERIC, "Unable to read configs, bailing out")
+		return PackageResult.err(Error.Code.GENERIC, "Unable to read configs, bailing out")
 	if res.is_err():
 		return res
 
@@ -843,7 +843,7 @@ func dry_run() -> Result:
 	var pre_dry_run_res = hooks.run(self, ValidHooks.PRE_DRY_RUN)
 	if typeof(pre_dry_run_res) == TYPE_BOOL and pre_dry_run_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_DRY_RUN)
-		return Result.ok({DryRunValues.OK: true})
+		return PackageResult.ok({DryRunValues.OK: true})
 
 	var dir := Directory.new()
 
@@ -885,9 +885,9 @@ func dry_run() -> Result:
 	var post_dry_run_res = hooks.run(self, ValidHooks.POST_DRY_RUN)
 	if typeof(post_dry_run_res) == TYPE_BOOL and post_dry_run_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_DRY_RUN)
-		return Result.ok({DryRunValues.OK: true})
+		return PackageResult.ok({DryRunValues.OK: true})
 
-	return Result.ok({
+	return PackageResult.ok({
 		DryRunValues.OK: packages_to_update.empty() and failed_packages.failed_package_log.empty(),
 		DryRunValues.UPDATE: packages_to_update,
 		DryRunValues.INVALID: failed_packages.failed_package_log
@@ -895,11 +895,11 @@ func dry_run() -> Result:
 
 ## Reads the `godot.package` file and updates all packages. A `godot.lock` file is also written afterwards.
 ##
-## @result: Result<()> - The result of the operation
-func update(force: bool = false) -> Result:
+## @result: PackageResult<()> - The result of the operation
+func update(force: bool = false) -> PackageResult:
 	var res := _read_all_configs()
 	if not res:
-		return Result.err(Error.Code.GENERIC, "Unable to read configs, bailing out")
+		return PackageResult.err(Error.Code.GENERIC, "Unable to read configs, bailing out")
 	if res.is_err():
 		return res
 
@@ -916,7 +916,7 @@ func update(force: bool = false) -> Result:
 	var pre_update_res = hooks.run(self, ValidHooks.PRE_UPDATE)
 	if typeof(pre_update_res) == TYPE_BOOL and pre_update_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_UPDATE)
-		return Result.ok()
+		return PackageResult.ok()
 
 	var dir := Directory.new()
 	
@@ -1051,24 +1051,24 @@ func update(force: bool = false) -> Result:
 	var post_update_res = hooks.run(self, ValidHooks.POST_UPDATE)
 	if typeof(post_update_res) == TYPE_BOOL and post_update_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_UPDATE)
-		return Result.ok()
+		return PackageResult.ok()
 	
 	if failed_packages.has_logs():
-		return Result.err(Error.Code.PROCESS_PACKAGES_FAILURE, failed_packages.get_logs())
+		return PackageResult.err(Error.Code.PROCESS_PACKAGES_FAILURE, failed_packages.get_logs())
 
 	res = write_config(LOCK_FILE, lock_file)
 	if not res or res.is_err():
-		return res if res else Result.err(Error.Code.GENERIC, "Unable to write configs")
+		return res if res else PackageResult.err(Error.Code.GENERIC, "Unable to write configs")
 
-	return Result.ok()
+	return PackageResult.ok()
 
 ## Remove all packages listed in `godot.lock`
 ##
-## @return: Result<()> - The result of the operation
-func purge() -> Result:
+## @return: PackageResult<()> - The result of the operation
+func purge() -> PackageResult:
 	var res := _read_all_configs()
 	if not res:
-		return Result.err(Error.Code.GENERIC, "Unable to read configs, bailing out")
+		return PackageResult.err(Error.Code.GENERIC, "Unable to read configs, bailing out")
 	if res.is_err():
 		return res
 
@@ -1085,7 +1085,7 @@ func purge() -> Result:
 	var pre_purge_res = hooks.run(self, ValidHooks.PRE_PURGE)
 	if typeof(pre_purge_res) == TYPE_BOOL and pre_purge_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_PURGE)
-		return Result.ok()
+		return PackageResult.ok()
 
 	var dir := Directory.new()
 
@@ -1107,7 +1107,7 @@ func purge() -> Result:
 	var post_purge_res = hooks.run(self, ValidHooks.POST_PURGE)
 	if typeof(post_purge_res) == TYPE_BOOL and post_purge_res == false:
 		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_PURGE)
-		return Result.ok()
+		return PackageResult.ok()
 	
 	var keys_to_erase := []
 	for key in lock_file.keys():
@@ -1121,5 +1121,5 @@ func purge() -> Result:
 	if res.is_err():
 		return res
 
-	return Result.ok() if not failed_packages.has_logs() else \
-			Result.err(Error.Code.REMOVE_PACKAGE_DIR_FAILURE, failed_packages.get_logs())
+	return PackageResult.ok() if not failed_packages.has_logs() else \
+			PackageResult.err(Error.Code.REMOVE_PACKAGE_DIR_FAILURE, failed_packages.get_logs())

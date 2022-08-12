@@ -25,6 +25,19 @@ which will be automatically pulled before pulling other dependencies.
 4. Answer the prompts given by `npm`
 5. Run `npm publish --access public ` to publish your package. [See the npm docs for more details](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages)
 
+## CLI
+The `addons/godot-package-manager/godot-package-manager.gd` script can be run with arguments via CLI. Examples assume they are being run from the project's root directory.
+
+Update
+```
+<path/to/godot/binary> --script addons/godot-package-manager/cli_helper.gd --package-update
+```
+
+Purge
+```
+<path/to/godot/binary> --script addons/godot-package-manager/cli_helper.gd --package-purge
+```
+
 ## `godot.package`
 Describes packages to be installed along with run hooks. This _should_ be modified
 by the user.
