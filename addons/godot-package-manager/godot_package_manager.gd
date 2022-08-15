@@ -8,6 +8,13 @@ class Error:
 		NONE = 0,
 		GENERIC,
 
+		#region JSON handling
+
+		INVALID_JSON,
+		UNEXPECTED_JSON_FORMAT,
+
+		#endregion
+
 		#region Http requests
 
 		INITIATE_CONNECT_TO_HOST_FAILURE,
@@ -369,6 +376,7 @@ signal operation_finished()
 
 const REGISTRY := "https://registry.npmjs.org"
 const ADDONS_DIR_FORMAT := "res://addons/%s"
+const DEPENDENCIES_DIR_FORMAT := "res://addons/__gpm_deps/%s"
 
 const DryRunValues := {
 	"OK": "ok",
@@ -405,6 +413,7 @@ const LockFileKeys := {
 	"INTEGRITY": "integrity"
 }
 
+const NPM_PACKAGE_FILE := "package.json"
 const NpmManifestKeys := {
 	"VERSION": "version",
 	"DIST": "dist",
@@ -476,6 +485,16 @@ static func _is_valid_new_package(lock_file: Dictionary, npm_manifest: Dictionar
 
 	return true
 
+static func _json_to_dict(json_string: String) -> PackageResult:
+	var parse_result := JSON.parse(json_string)
+	if parse_result.error != OK:
+		return PackageResult.err(Error.Code.INVALID_JSON)
+	
+	if typeof(parse_result.result) != TYPE_DICTIONARY:
+		return PackageResult.err(Error.Code.UNEXPECTED_JSON_FORMAT)
+
+	return PackageResult.ok(parse_result.result)
+
 #region REST
 
 ## Send a GET request to a given host/path
@@ -531,11 +550,15 @@ static func _request_npm_manifest(package_name: String, package_version: String)
 		return res
 
 	var body: String = res.unwrap().get_string_from_utf8()
-	var parse_res := JSON.parse(body)
-	if parse_res.error != OK or not parse_res.result is Dictionary:
-		return PackageResult.err(Error.Code.UNEXPECTED_DATA, "%s - Unexpected json" % package_name)
+	var parse_res := _json_to_dict(body)
+	if parse_res.is_err():
+		return parse_res
+	# var parse_res := JSON.parse(body)
+	# if parse_res.error != OK or not parse_res.result is Dictionary:
+	# 	return PackageResult.err(Error.Code.UNEXPECTED_DATA, "%s - Unexpected json" % package_name)
 
-	var npm_manifest: Dictionary = parse_res.result
+	# var npm_manifest: Dictionary = parse_res.result
+	var npm_manifest: Dictionary = parse_res.unwrap()
 
 	if not npm_manifest.has("dist") and not npm_manifest["dist"].has("tarball"):
 		return PackageResult.err(Error.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields" % package_name)
@@ -1045,6 +1068,25 @@ func update(force: bool = false) -> PackageResult:
 			LockFileKeys.VERSION: package_version,
 			LockFileKeys.INTEGRITY: npm_manifest["dist"]["integrity"]
 		}
+
+		# TODO read package.json file of downloaded package and download dependencies
+		var file := File.new()
+		var npm_package_file_location := "%s/%s" % [dir_name, NPM_PACKAGE_FILE]
+		if not file.file_exists(npm_package_file_location):
+			failed_packages.add(package_name, "No npm package manifest found, unable to read metadata")
+			continue
+
+		if file.open(npm_package_file_location, File.READ) != OK:
+			failed_packages.add(package_name, "Unable to open npm package manifest, unable to read metadata")
+			continue
+		
+		res = _json_to_dict(file.get_as_text())
+		if not res or res.is_err:
+			failed_packages.add(package_name, "Unable to read npm package manifest")
+			continue
+
+		var npm_package_manifest: Dictionary = res.unwrap()
+		
 	
 	emit_signal("operation_finished")
 	
