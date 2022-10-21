@@ -916,6 +916,143 @@ func dry_run() -> PackageResult:
 		DryRunValues.INVALID: failed_packages.failed_package_log
 	})
 
+
+# Downloads a package, used by `update()`
+#
+# @result: GDScriptFunctionState
+func download_package(package_name: String, package_file: Dictionary, lock_file: Dictionary, force: bool, failed_packages: FailedPackages) -> void:
+	yield(Engine.get_main_loop(), "idle_frame") # return a GDScriptFunctionState
+	var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
+	var package_version := ""
+
+	var data = package_file[PackageKeys.PACKAGES][package_name]
+	if data is Dictionary:
+		package_version = data.get(PackageKeys.VERSION, "")
+		if package_version.empty():
+			failed_packages.add(package_name, "Package version empty")
+			return
+		
+		for n in [PackageKeys.REQUIRED_WHEN, PackageKeys.OPTIONAL_WHEN]:
+			if data.has(n):
+				var body
+				var body_data = data[n]
+				if body_data is Dictionary:
+					var type = body_data.get("type", "")
+					var value = body_data.get("value", "")
+					if type == "script":
+						body = value
+					elif type == "script_name":
+						if not package_file[PackageKeys.SCRIPTS].has(value):
+							failed_packages.add(package_name, "Script does not exist %s" % value)
+							return
+
+						body = package_file[PackageKeys.SCRIPTS][value]
+					else:
+						# Invalid type, assume the entire block is bad
+						failed_packages.add(package_name, "Invalid type %s, bailing out" % type)
+						return
+				else:
+					body = body_data
+				var res = _build_script(body if body is String else PoolStringArray(body).join("\n"))
+				if res.is_err():
+					failed_packages.add(package_name, "Failed to parse section %s" % n)
+					return
+				
+				var execute_value = res.unwrap().execute([self])
+				if typeof(execute_value) == TYPE_BOOL:
+					match n:
+						PackageKeys.REQUIRED_WHEN:
+							if execute_value == false:
+								emit_signal("message_logged", "Skipping package %s because of %s condition" %
+										[package_name, n])
+								return
+						PackageKeys.OPTIONAL_WHEN:
+							if execute_value == true:
+								emit_signal("message_logged", "Skipping package %s because of %s condition" %
+										[package_name, n])
+								return
+	else:
+		package_version = data
+	var res = yield(_request_npm_manifest(package_name, package_version), "completed")
+	if not res or res.is_err():
+		failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
+		return
+
+	var npm_manifest: Dictionary = res.unwrap()
+	
+	# Check against lockfile and determine whether to continue or not
+	# If the directory does not exist, there's no need to do addtional checks
+	var dir := Directory.new()
+	if dir.dir_exists(dir_name):
+		if not force:
+			if (
+				lock_file.has(package_name) and
+				not _is_valid_new_package(lock_file[package_name], npm_manifest)
+				):
+				emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" %
+						[package_name, package_name])
+				return
+
+		if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
+			failed_packages.add(package_name, "Unable to remove old files")
+			return
+
+
+	#region Download tarball
+
+	res = yield(_send_get_request(REGISTRY, npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].replace(REGISTRY, "")), "completed")
+	if not res or res.is_err():
+		failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
+		return
+	
+	var download_location: String = ADDONS_DIR_FORMAT % npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].get_file()
+	var downloaded_file: PoolByteArray = res.unwrap()
+	res = _save_data(downloaded_file, download_location)
+	if not res or res.is_err():
+		failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
+		return
+
+	#endregion
+
+	if not dir.dir_exists(dir_name) and dir.make_dir_recursive(dir_name) != OK:
+		failed_packages.add(package_name, "Unable to create directory")
+		return
+	
+	res = xzf(download_location, dir_name)
+	if not res or res.is_err():
+		failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
+		return
+	
+	if dir.remove(download_location) != OK:
+		failed_packages.add(package_name, "Failed to remove tarball")
+		return
+
+	lock_file[package_name] = {
+		LockFileKeys.VERSION: package_version,
+		LockFileKeys.INTEGRITY: npm_manifest["dist"]["integrity"]
+	}
+
+
+	# TODO read package.json file of downloaded package and download dependencies
+	var file := File.new()
+	var npm_package_file_location := "%s/%s" % [dir_name, NPM_PACKAGE_FILE]
+	if not file.file_exists(npm_package_file_location):
+		failed_packages.add(package_name, "No npm package manifest found, unable to read metadata")
+		return
+
+	if file.open(npm_package_file_location, File.READ) != OK:
+		failed_packages.add(package_name, "Unable to open npm package manifest, unable to read metadata")
+		return
+	
+	res = _json_to_dict(file.get_as_text())
+	if not res or res.is_err():
+		failed_packages.add(package_name, "Unable to read npm package manifest")
+		return
+
+	var npm_package_manifest: Dictionary = res.unwrap()
+
+
+
 ## Reads the `godot.package` file and updates all packages. A `godot.lock` file is also written afterwards.
 ##
 ## @result: PackageResult<()> - The result of the operation
@@ -949,144 +1086,7 @@ func update(force: bool = false) -> PackageResult:
 	var failed_packages := FailedPackages.new()
 	for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
 		emit_signal("operation_checkpoint_reached", package_name)
-		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
-		var package_version := ""
-
-		var data = package_file[PackageKeys.PACKAGES][package_name]
-		if data is Dictionary:
-			package_version = data.get(PackageKeys.VERSION, "")
-			if package_version.empty():
-				failed_packages.add(package_name, res.unwrap_err().to_string())
-				continue
-			
-			# Keep track of whether we should skip to the next item
-			# Used to break out of inner for-loop and continue to next item
-			# in outer for-loop
-			var should_skip := false
-			for n in [PackageKeys.REQUIRED_WHEN, PackageKeys.OPTIONAL_WHEN]:
-				if data.has(n):
-					var body
-					var body_data = data[n]
-					if body_data is Dictionary:
-						var type = body_data.get("type", "")
-						var value = body_data.get("value", "")
-						if type == "script":
-							body = value
-						elif type == "script_name":
-							if not package_file[PackageKeys.SCRIPTS].has(value):
-								failed_packages.add(package_name, "Script does not exist %s" % value)
-								should_skip = true
-								break
-
-							body = package_file[PackageKeys.SCRIPTS][value]
-						else:
-							# Invalid type, assume the entire block is bad
-							failed_packages.add(package_name, "Invalid type %s, bailing out" % type)
-							should_skip = true
-							break
-					else:
-						body = body_data
-					res = _build_script(body if body is String else PoolStringArray(body).join("\n"))
-					if res.is_err():
-						failed_packages.add(package_name, "Failed to parse section %s" % n)
-						should_skip = true
-						break
-					
-					var execute_value = res.unwrap().execute([self])
-					if typeof(execute_value) == TYPE_BOOL:
-						match n:
-							PackageKeys.REQUIRED_WHEN:
-								if execute_value == false:
-									emit_signal("message_logged", "Skipping package %s because of %s condition" %
-											[package_name, n])
-									should_skip = true
-							PackageKeys.OPTIONAL_WHEN:
-								if execute_value == true:
-									emit_signal("message_logged", "Skipping package %s because of %s condition" %
-											[package_name, n])
-									should_skip = true
-
-					if should_skip:
-						break
-			if should_skip:
-				continue
-		else:
-			package_version = data
-
-		res = yield(_request_npm_manifest(package_name, package_version), "completed")
-		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
-			continue
-
-		var npm_manifest: Dictionary = res.unwrap()
-
-		# Check against lockfile and determine whether to continue or not
-		# If the directory does not exist, there's no need to do addtional checks
-		if dir.dir_exists(dir_name):
-			if not force:
-				if lock_file.has(package_name) and \
-						not _is_valid_new_package(lock_file[package_name], npm_manifest):
-					emit_signal("message_logged", "%s does not need to be updated\nSkipping %s" %
-							[package_name, package_name])
-					continue
-
-			if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
-				failed_packages.add(package_name, "Unable to remove old files")
-				continue
-
-		#region Download tarball
-
-		res = yield(_send_get_request(REGISTRY, npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].replace(REGISTRY, "")), "completed")
-		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
-			continue
-
-		var download_location: String = ADDONS_DIR_FORMAT % npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].get_file()
-		var downloaded_file: PoolByteArray = res.unwrap()
-		res = _save_data(downloaded_file, download_location)
-		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
-			continue
-
-		#endregion
-
-		if not dir.dir_exists(dir_name):
-			if dir.make_dir_recursive(dir_name) != OK:
-				failed_packages.add(package_name, "Unable to create directory")
-				continue
-		
-		res = xzf(download_location, dir_name)
-		if not res or res.is_err():
-			failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
-			continue
-		
-		if dir.remove(download_location) != OK:
-			failed_packages.add(package_name, "Failed to remove tarball")
-			continue
-
-		lock_file[package_name] = {
-			LockFileKeys.VERSION: package_version,
-			LockFileKeys.INTEGRITY: npm_manifest["dist"]["integrity"]
-		}
-
-		# TODO read package.json file of downloaded package and download dependencies
-		var file := File.new()
-		var npm_package_file_location := "%s/%s" % [dir_name, NPM_PACKAGE_FILE]
-		if not file.file_exists(npm_package_file_location):
-			failed_packages.add(package_name, "No npm package manifest found, unable to read metadata")
-			continue
-
-		if file.open(npm_package_file_location, File.READ) != OK:
-			failed_packages.add(package_name, "Unable to open npm package manifest, unable to read metadata")
-			continue
-		
-		res = _json_to_dict(file.get_as_text())
-		if not res or res.is_err:
-			failed_packages.add(package_name, "Unable to read npm package manifest")
-			continue
-
-		var npm_package_manifest: Dictionary = res.unwrap()
-		
+		yield(download_package(package_name, package_file, lock_file, force, failed_packages), "completed")
 	
 	emit_signal("operation_finished")
 	
