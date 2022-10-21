@@ -376,7 +376,7 @@ signal operation_finished()
 
 const REGISTRY := "https://registry.npmjs.org"
 const ADDONS_DIR_FORMAT := "res://addons/%s"
-const DEPENDENCIES_DIR_FORMAT := "res://addons/__gpm_deps/%s"
+const DEPENDENCIES_DIR_FORMAT := "res://addons/__gpm_deps/%s/%s"
 
 const DryRunValues := {
 	"OK": "ok",
@@ -419,6 +419,9 @@ const NpmManifestKeys := {
 	"DIST": "dist",
 	"INTEGRITY": "integrity",
 	"TARBALL": "tarball"
+}
+const NpmPackageKeys := {
+	"PACKAGES": "dependencies",
 }
 
 const ValidHooks := {
@@ -917,12 +920,20 @@ func dry_run() -> PackageResult:
 	})
 
 
+# Converts a package.json to a godot.package format
+#
+# @result: Dictionary
+func npm_to_godot(npm: Dictionary) -> Dictionary:
+	var new_d := {}
+	new_d[PackageKeys.PACKAGES] = npm.get(NpmPackageKeys.PACKAGES, {})
+	return new_d
+
 # Downloads a package, used by `update()`
 #
 # @result: GDScriptFunctionState
-func download_package(package_name: String, package_file: Dictionary, lock_file: Dictionary, force: bool, failed_packages: FailedPackages) -> void:
+func download_package(package_name: String, download_dir: String, package_file: Dictionary, lock_file: Dictionary, force: bool, failed_packages: FailedPackages) -> void:
+	emit_signal("operation_checkpoint_reached", package_name)
 	yield(Engine.get_main_loop(), "idle_frame") # return a GDScriptFunctionState
-	var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
 	var package_version := ""
 
 	var data = package_file[PackageKeys.PACKAGES][package_name]
@@ -983,7 +994,7 @@ func download_package(package_name: String, package_file: Dictionary, lock_file:
 	# Check against lockfile and determine whether to continue or not
 	# If the directory does not exist, there's no need to do addtional checks
 	var dir := Directory.new()
-	if dir.dir_exists(dir_name):
+	if dir.dir_exists(download_dir):
 		if not force:
 			if (
 				lock_file.has(package_name) and
@@ -993,7 +1004,7 @@ func download_package(package_name: String, package_file: Dictionary, lock_file:
 						[package_name, package_name])
 				return
 
-		if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
+		if _remove_dir_recursive(ProjectSettings.globalize_path(download_dir)) != OK:
 			failed_packages.add(package_name, "Unable to remove old files")
 			return
 
@@ -1014,11 +1025,11 @@ func download_package(package_name: String, package_file: Dictionary, lock_file:
 
 	#endregion
 
-	if not dir.dir_exists(dir_name) and dir.make_dir_recursive(dir_name) != OK:
+	if not dir.dir_exists(download_dir) and dir.make_dir_recursive(download_dir) != OK:
 		failed_packages.add(package_name, "Unable to create directory")
 		return
 	
-	res = xzf(download_location, dir_name)
+	res = xzf(download_location, download_dir)
 	if not res or res.is_err():
 		failed_packages.add(package_name, res.unwrap_err().to_string() if res else DEFAULT_ERROR)
 		return
@@ -1035,7 +1046,7 @@ func download_package(package_name: String, package_file: Dictionary, lock_file:
 
 	# TODO read package.json file of downloaded package and download dependencies
 	var file := File.new()
-	var npm_package_file_location := "%s/%s" % [dir_name, NPM_PACKAGE_FILE]
+	var npm_package_file_location := "%s/%s" % [download_dir, NPM_PACKAGE_FILE]
 	if not file.file_exists(npm_package_file_location):
 		failed_packages.add(package_name, "No npm package manifest found, unable to read metadata")
 		return
@@ -1049,7 +1060,10 @@ func download_package(package_name: String, package_file: Dictionary, lock_file:
 		failed_packages.add(package_name, "Unable to read npm package manifest")
 		return
 
-	var npm_package_manifest: Dictionary = res.unwrap()
+	var package: Dictionary = npm_to_godot(res.unwrap())
+	for package_name in package.get( PackageKeys.PACKAGES, {}).keys():
+		var down_dir := DEPENDENCIES_DIR_FORMAT % [package_name.get_file(), package_version]
+		yield(download_package(package_name, down_dir,  package, lock_file, force, failed_packages), "completed")
 
 
 
@@ -1085,8 +1099,7 @@ func update(force: bool = false) -> PackageResult:
 	# Used for compiling together all errors that may occur
 	var failed_packages := FailedPackages.new()
 	for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
-		emit_signal("operation_checkpoint_reached", package_name)
-		yield(download_package(package_name, package_file, lock_file, force, failed_packages), "completed")
+		yield(download_package(package_name, ADDONS_DIR_FORMAT % package_name.get_file(), package_file, lock_file, force, failed_packages), "completed")
 	
 	emit_signal("operation_finished")
 	
