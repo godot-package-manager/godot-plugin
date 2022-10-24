@@ -375,7 +375,8 @@ signal operation_finished()
 #region Constants
 
 const REGISTRY := "https://registry.npmjs.org"
-const ADDONS_DIR_FORMAT := "res://addons/%s"
+const ADDONS_DIR := "res://addons"
+const ADDONS_DIR_FORMAT := ADDONS_DIR + "/%s"
 const DEPENDENCIES_DIR_FORMAT := "res://addons/__gpm_deps/%s/%s"
 
 const DryRunValues := {
@@ -410,7 +411,9 @@ const PackageKeys := {
 const LOCK_FILE := "godot.lock"
 const LockFileKeys := {
 	"VERSION": "version",
-	"INTEGRITY": "integrity"
+	"INTEGRITY": "integrity",
+	"INDIRECT": "indirect",
+	"DIRECTORY": "dir"
 }
 
 const NPM_PACKAGE_FILE := "package.json"
@@ -497,6 +500,31 @@ static func _json_to_dict(json_string: String) -> PackageResult:
 		return PackageResult.err(Error.Code.UNEXPECTED_JSON_FORMAT)
 
 	return PackageResult.ok(parse_result.result)
+
+# Converts a package.json to a godot.package format
+#
+# @result: Dictionary
+static func _npm_to_godot(npm: Dictionary) -> Dictionary:
+	var new_d := {PackageKeys.PACKAGES: {}}
+	var npm_deps: Dictionary = npm.get(NpmPackageKeys.PACKAGES, {})
+	for pkg in npm_deps.keys():
+		new_d[PackageKeys.PACKAGES][pkg] = {}
+		new_d[PackageKeys.PACKAGES][pkg][PackageKeys.VERSION] = npm_deps[pkg]
+	return new_d
+
+# flattens a dictionary and returns a array of the values
+static func _flatten(d: Dictionary) -> Array:
+	var a := []
+	_flatten_inner(d, a)
+	return a
+
+static func _flatten_inner(d: Dictionary, a: Array):
+	for v in d.values():
+		if v is Dictionary:
+			_flatten_inner(v, a)
+			continue
+		a.append(v)
+
 
 #region REST
 
@@ -607,6 +635,31 @@ static func _get_files_recursive_inner(original_path: String, path: String) -> D
 		
 		file_name = dir.get_next()
 	
+	return r
+
+# returns toplevel directory entrys
+#
+# @result PackageResult<PoolStringArray>
+static func _walk_dir(path: String, dir_only := false) -> PackageResult:
+	var files: PoolStringArray = []
+	var dir := Directory.new()
+	var e := dir.open(path)
+	if e: return PackageResult.err(10, "Directory open failed")
+	dir.list_dir_begin(true, false)  # list the directory
+	var file_name := dir.get_next()  # get the next file
+	while file_name != "":
+		if dir_only:
+			if dir.current_is_dir():
+				files.append(path.plus_file(file_name))  # add the folder
+		else:
+			files.append(path.plus_file(file_name.split(".",true, 1)[0]))  # add the file
+		file_name = dir.get_next()  # get the next file
+	return PackageResult.ok(files)
+	
+
+static func compile_regex(src: String) -> RegEx:
+	var r := RegEx.new()
+	r.compile(src)
 	return r
 
 ## Wrapper for _get_files_recursive(..., ...) omitting the `original_path` arg.
@@ -919,19 +972,82 @@ func dry_run() -> PackageResult:
 		DryRunValues.INVALID: failed_packages.failed_package_log
 	})
 
+var load_r := compile_regex("(pre)?load\\(\\\"([^)]+)\\\"\\)")
+func _modify_loads(t: String, cwd: String) -> PackageResult:
+	var offset := 0
+	var F := File.new()
+	for m in load_r.search_all(t):
+		# m.strings[(the entire match), (the pre part), (group1)]
+		var f: String = m.strings[2]
+		if F.file_exists(cwd.plus_file(f)):
+			continue
+		var res := _modify_load(f, m.strings[1] == "pre", cwd)
+		if res.is_err():
+			return res
+		var p: String = res.unwrap()
+		var tmp := t.left(m.get_start() + offset) + p + t.right(m.get_end() + offset)
+		offset += len(tmp) - len(t) # offset
+		t = tmp
+	return PackageResult.ok(t)
 
-# Converts a package.json to a godot.package format
-#
-# @result: Dictionary
-func npm_to_godot(npm: Dictionary) -> Dictionary:
-	var new_d := {}
-	new_d[PackageKeys.PACKAGES] = npm.get(NpmPackageKeys.PACKAGES, {})
-	return new_d
+func _modify_load(f: String, is_preload: bool, cwd: String) -> PackageResult:
+	var F := File.new()
+	if f.begins_with("res://addons"):
+		f = f.replace("res://addons", "")
+	var split := f.split("/")
+	var wanted_addon := split[1]
+	var wanted_file := PoolStringArray(Array(split).slice(2, len(split)-1)).join("/")
+	var res := read_config(LOCK_FILE)
+	if res.is_err():
+		return res
+	var cfg: Dictionary = res.unwrap()
+	var noscope_cfg: Dictionary = {}
+	for pkg in cfg.keys():
+		noscope_cfg[pkg.get_file()] = cfg[pkg]
+	if wanted_addon in noscope_cfg:
+		var fstr := ("preload" if is_preload else "load") + "(\"%s\")"
+		return PackageResult.ok(fstr % noscope_cfg[wanted_addon][LockFileKeys.DIRECTORY].plus_file(wanted_file))
+	return PackageResult.err(Error.Code.GENERIC, "Could not find path")
+
+# scan for load and preload funcs and have their paths modified
+# - preload will be modified to use a relative path, unless the path would need to use `../`, in which case we defer to absolution
+# - load will be modified to use an absolute path (they are not preprocessored, must be absolute)
+func modify_packages() -> PackageResult:
+	var res := _walk_dir(ADDONS_DIR, true)
+	if res.is_err():
+		return res
+	var packages: Array = res.unwrap()
+	var F := File.new()
+	for pkgpath in packages:
+		var pkgname: String = pkgpath.replace("res://addons/", "")
+		if pkgname == "godot-package-manager":
+			continue
+		elif pkgname == "__gpm_deps":
+			pass
+		else:
+			for f in _flatten(_get_files_recursive(pkgpath)):
+				if ResourceLoader.exists(f):
+					if f.split(".")[-1] in ["gd", "gdscript"]:
+						if F.open(f, F.READ) != OK:
+							return PackageResult.err(Error.Code.FILE_OPEN_FAILURE)
+						res = _modify_loads(F.get_as_text(), f.get_base_dir())
+						F.close()
+						if res.is_err():
+							return res
+						F.open(f, F.WRITE) # truncate
+						F.store_string(res.unwrap())
+						F.close()
+					var r := load(f)
+					# if r is GDScript:
+					# 	if r.has_source_code():
+					# 		r.source_code = _modify_loads(r.source_code, f.get_base_dir())
+					# 		ResourceSaver.save(f,r)
+	return PackageResult.ok()
 
 # Downloads a package, used by `update()`
 #
 # @result: GDScriptFunctionState
-func download_package(package_name: String, download_dir: String, package_file: Dictionary, lock_file: Dictionary, force: bool, failed_packages: FailedPackages) -> void:
+func download_package(package_name: String, download_dir: String, package_file: Dictionary, lock_file: Dictionary, force: bool, failed_packages: FailedPackages, is_indirect := false) -> void:
 	emit_signal("operation_checkpoint_reached", package_name)
 	yield(Engine.get_main_loop(), "idle_frame") # return a GDScriptFunctionState
 	var package_version := ""
@@ -1040,7 +1156,9 @@ func download_package(package_name: String, download_dir: String, package_file: 
 
 	lock_file[package_name] = {
 		LockFileKeys.VERSION: package_version,
-		LockFileKeys.INTEGRITY: npm_manifest["dist"]["integrity"]
+		LockFileKeys.INTEGRITY: npm_manifest["dist"]["integrity"],
+		LockFileKeys.INDIRECT: is_indirect,
+		LockFileKeys.DIRECTORY: download_dir,
 	}
 
 
@@ -1060,10 +1178,10 @@ func download_package(package_name: String, download_dir: String, package_file: 
 		failed_packages.add(package_name, "Unable to read npm package manifest")
 		return
 
-	var package: Dictionary = npm_to_godot(res.unwrap())
-	for package_name in package.get( PackageKeys.PACKAGES, {}).keys():
-		var down_dir := DEPENDENCIES_DIR_FORMAT % [package_name.get_file(), package_version]
-		yield(download_package(package_name, down_dir,  package, lock_file, force, failed_packages), "completed")
+	var package: Dictionary = _npm_to_godot(res.unwrap())
+	for package_name in package.get(PackageKeys.PACKAGES, {}).keys():
+		var down_dir := DEPENDENCIES_DIR_FORMAT % [package_name.get_file(), package[PackageKeys.PACKAGES][package_name][PackageKeys.VERSION]]
+		yield(download_package(package_name, down_dir,  package, lock_file, force, failed_packages, true), "completed")
 
 
 
@@ -1114,7 +1232,8 @@ func update(force: bool = false) -> PackageResult:
 	res = write_config(LOCK_FILE, lock_file)
 	if not res or res.is_err():
 		return res if res else PackageResult.err(Error.Code.GENERIC, "Unable to write configs")
-
+	
+	modify_packages()
 	return PackageResult.ok()
 
 ## Remove all packages listed in `godot.lock`
@@ -1150,7 +1269,7 @@ func purge() -> PackageResult:
 	var completed_package_count: int = 0
 	for package_name in lock_file.keys():
 		emit_signal("operation_checkpoint_reached", package_name)
-		var dir_name: String = ADDONS_DIR_FORMAT % package_name.get_file()
+		var dir_name: String = lock_file[package_name][LockFileKeys.DIRECTORY]
 
 		if dir.dir_exists(dir_name):
 			if _remove_dir_recursive(ProjectSettings.globalize_path(dir_name)) != OK:
