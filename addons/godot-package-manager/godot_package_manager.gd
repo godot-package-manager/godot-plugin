@@ -471,6 +471,15 @@ static func _read_all_configs() -> PackageResult:
 
 	return PackageResult.ok([package_file, lock_file])
 
+static func _save_string(string: String, path: String) -> PackageResult:
+	var file := File.new()
+	if file.open(path, File.WRITE) != OK:
+		return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, path)
+	
+	file.store_string(string)
+	file.close()
+	return PackageResult.ok()
+
 static func _save_data(data: PoolByteArray, path: String) -> PackageResult:
 	var file := File.new()
 	if file.open(path, File.WRITE) != OK:
@@ -481,6 +490,14 @@ static func _save_data(data: PoolByteArray, path: String) -> PackageResult:
 	file.close()
 	
 	return PackageResult.ok()
+
+static func _read_file_to_string(path: String) -> PackageResult:
+	var file := File.new()
+	if file.open(path, File.READ) != OK:
+		return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, path)
+	
+	var t := PackageResult.ok(file.get_as_text())
+	return (t)
 
 static func _is_valid_new_package(lock_file: Dictionary, npm_manifest: Dictionary) -> bool:
 	if lock_file.get(LockFileKeys.VERSION, "") == npm_manifest.get(NpmManifestKeys.VERSION, "__MISSING__"):
@@ -972,16 +989,17 @@ func dry_run() -> PackageResult:
 		DryRunValues.INVALID: failed_packages.failed_package_log
 	})
 
-var load_r := compile_regex("(pre)?load\\(\\\"([^)]+)\\\"\\)")
-func _modify_loads(t: String, cwd: String) -> PackageResult:
+var script_load_r := compile_regex("(pre)?load\\(\\\"([^)]+)\\\"\\)")
+func _modify_script_loads(t: String, cwd: String) -> PackageResult:
 	var offset := 0
 	var F := File.new()
-	for m in load_r.search_all(t):
+	for m in script_load_r.search_all(t):
 		# m.strings[(the entire match), (the pre part), (group1)]
 		var f: String = m.strings[2]
-		if F.file_exists(cwd.plus_file(f)):
+		if F.file_exists(f) or F.file_exists(cwd.plus_file(f)):
 			continue
-		var res := _modify_load(f, m.strings[1] == "pre", cwd)
+		var is_preload = m.strings[1] == "pre"
+		var res := _modify_load(f, is_preload, cwd, ("preload" if is_preload else "load") + "(\"%s\")")
 		if res.is_err():
 			return res
 		var p: String = res.unwrap()
@@ -990,11 +1008,29 @@ func _modify_loads(t: String, cwd: String) -> PackageResult:
 		t = tmp
 	return PackageResult.ok(t)
 
-func _modify_load(f: String, is_preload: bool, cwd: String) -> PackageResult:
+var scene_load_r := compile_regex('\\[ext_resource path="([^"]+)"')
+func _modify_scene_loads(t: String, cwd: String) -> PackageResult:
+	var offset := 0
 	var F := File.new()
-	if f.begins_with("res://addons"):
-		f = f.replace("res://addons", "")
-	var split := f.split("/")
+	for m in scene_load_r.search_all(t):
+		var f: String = m.strings[1]
+		print(f)
+		if F.file_exists(f) or F.file_exists(cwd.plus_file(f)):
+			continue
+		var res := _modify_load(f, false, cwd, '[ext_resource path="%s"')
+		if res.is_err():
+			return res
+		var p: String = res.unwrap()
+		var tmp := t.left(m.get_start() + offset) + p + t.right(m.get_end() + offset)
+		offset += len(tmp) - len(t) # offset
+		t = tmp
+	return PackageResult.ok(t)
+
+func _modify_load(path: String, is_preload: bool, cwd: String, f_str: String) -> PackageResult:
+	var F := File.new()
+	if path.begins_with("res://addons"):
+		path = path.replace("res://addons", "")
+	var split := path.split("/")
 	var wanted_addon := split[1]
 	var wanted_file := PoolStringArray(Array(split).slice(2, len(split)-1)).join("/")
 	var res := read_config(LOCK_FILE)
@@ -1005,9 +1041,8 @@ func _modify_load(f: String, is_preload: bool, cwd: String) -> PackageResult:
 	for pkg in cfg.keys():
 		noscope_cfg[pkg.get_file()] = cfg[pkg]
 	if wanted_addon in noscope_cfg:
-		var fstr := ("preload" if is_preload else "load") + "(\"%s\")"
-		return PackageResult.ok(fstr % noscope_cfg[wanted_addon][LockFileKeys.DIRECTORY].plus_file(wanted_file))
-	return PackageResult.err(Error.Code.GENERIC, "Could not find path")
+		return PackageResult.ok(f_str % noscope_cfg[wanted_addon][LockFileKeys.DIRECTORY].plus_file(wanted_file))
+	return PackageResult.err(Error.Code.GENERIC, "Could not find path for %s" % path)
 
 # scan for load and preload funcs and have their paths modified
 # - preload will be modified to use a relative path, unless the path would need to use `../`, in which case we defer to absolution
@@ -1022,26 +1057,32 @@ func modify_packages() -> PackageResult:
 		var pkgname: String = pkgpath.replace("res://addons/", "")
 		if pkgname == "godot-package-manager":
 			continue
-		elif pkgname == "__gpm_deps":
-			pass
 		else:
 			for f in _flatten(_get_files_recursive(pkgpath)):
 				if ResourceLoader.exists(f):
-					if f.split(".")[-1] in ["gd", "gdscript"]:
-						if F.open(f, F.READ) != OK:
-							return PackageResult.err(Error.Code.FILE_OPEN_FAILURE)
-						res = _modify_loads(F.get_as_text(), f.get_base_dir())
-						F.close()
+					var ext: String = f.split(".")[-1]
+					var modify_func: FuncRef
+
+					if ext in ["gd", "gdscript"]:
+						modify_func = funcref(self, "_modify_script_loads")
+					elif ext in ["tscn"]:
+						modify_func = funcref(self, "_modify_scene_loads")
+					else:
+						continue
+					res = _read_file_to_string(f)
+
+					if res.is_err():
+						return res
+					var file_contents: String = res.unwrap()
+					res = modify_func.call_func(file_contents, f.get_base_dir())
+
+					if res.is_err():
+						return res
+					var new_file_contents: String = res.unwrap()
+					if file_contents != new_file_contents:
+						res = _save_string(new_file_contents, f)
 						if res.is_err():
 							return res
-						F.open(f, F.WRITE) # truncate
-						F.store_string(res.unwrap())
-						F.close()
-					var r := load(f)
-					# if r is GDScript:
-					# 	if r.has_source_code():
-					# 		r.source_code = _modify_loads(r.source_code, f.get_base_dir())
-					# 		ResourceSaver.save(f,r)
 	return PackageResult.ok()
 
 # Downloads a package, used by `update()`
@@ -1219,6 +1260,9 @@ func update(force: bool = false) -> PackageResult:
 	for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
 		yield(download_package(package_name, ADDONS_DIR_FORMAT % package_name.get_file(), package_file, lock_file, force, failed_packages), "completed")
 	
+	res = modify_packages()
+	if res.is_err():
+		printerr(res)
 	emit_signal("operation_finished")
 	
 	var post_update_res = hooks.run(self, ValidHooks.POST_UPDATE)
@@ -1233,7 +1277,6 @@ func update(force: bool = false) -> PackageResult:
 	if not res or res.is_err():
 		return res if res else PackageResult.err(Error.Code.GENERIC, "Unable to write configs")
 	
-	modify_packages()
 	return PackageResult.ok()
 
 ## Remove all packages listed in `godot.lock`
