@@ -22,3 +22,7 @@ export/
 export_templates/
 
 **/temp
+addons/__gpm_deps
+addons/advanced-expression
+addons/test
+addons/verbal-expressions
