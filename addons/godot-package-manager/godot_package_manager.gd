@@ -1047,6 +1047,11 @@ class NPMUtils:
 
 #region misc utils
 class Utils:
+	static func remove_start(string: String, remove: String) -> String:
+		if string.begins_with(remove):
+			return string.substr(len(remove))
+		return string
+ 
 	static func json_to_dict(json_string: String) -> PackageResult:
 		var parse_result := JSON.parse(json_string)
 		if parse_result.error != OK:
@@ -1267,6 +1272,31 @@ class FileUtils:
 		return t
 
 
+	static func absolute_to_relative(path: String, cwd: String, remove_res := true) -> String:
+		if remove_res:
+			path = Utils.remove_start(path, "res://")
+			cwd = Utils.remove_start(cwd, "res://")
+		var common := cwd
+		var result := ""
+		while Utils.remove_start(path, common) == path:
+			common = common.get_base_dir()
+
+			if !result:
+				result = ".."
+			else:
+				result = "../" + result
+		
+		if common == "/":
+			result += "/"
+
+		var uncommon := Utils.remove_start(path, common)
+		if result and uncommon:
+			result += uncommon
+		elif uncommon:
+			result = uncommon.substr(1)
+		return result
+
+
 #endregion
 
 ###############################################################################
@@ -1280,8 +1310,6 @@ func print(text: String) -> void:
 
 
 var script_load_r := compile_regex('(pre)?load\\(\\"([^)]+)\\"\\)')
-
-
 func _modify_script_loads(t: String, cwd: String) -> PackageResult:
 	var offset := 0
 	var F := File.new()
@@ -1308,8 +1336,6 @@ func _modify_script_loads(t: String, cwd: String) -> PackageResult:
 
 
 var scene_load_r := compile_regex('\\[ext_resource path="([^"]+)"')
-
-
 func _modify_scene_loads(t: String, cwd: String) -> PackageResult:
 	var offset := 0
 	var F := File.new()
@@ -1335,8 +1361,7 @@ func _modify_load(
 	path: String, is_preload: bool, cwd: String, f_str: String
 ) -> PackageResult:
 	var F := File.new()
-	if path.begins_with("res://addons"):
-		path = path.replace("res://addons", "")
+	path = Utils.remove_start(path, "res://addons")
 	var split := path.split("/")
 	var wanted_addon := split[1]
 	var wanted_file := PoolStringArray(Array(split).slice(2, len(split) - 1)).join(
@@ -1346,16 +1371,19 @@ func _modify_load(
 	for pkg in pkg_configs:
 		noscope_cfg[pkg.unscopedname] = pkg.download_dir
 	if wanted_addon in noscope_cfg:
-		return PackageResult.ok(
-			f_str % noscope_cfg[wanted_addon].plus_file(wanted_file)
-		)
+		var wanted_f: String = noscope_cfg[wanted_addon].plus_file(wanted_file)
+		if is_preload:
+			var rel := FileUtils.absolute_to_relative(wanted_f, cwd)
+			if len(wanted_f) > len(rel):
+				wanted_f = rel
+		return PackageResult.ok(f_str % wanted_f)
 	return PackageResult.err(
 		Error.Code.GENERIC, "Could not find path for %s" % path
 	)
 
 
 # scan for load and preload funcs and have their paths modified
-# - preload will be modified to use a relative path, unless the path would need to use `../`, in which case we defer to absolution
+# - preload will be modified to use a relative path, if the relative path is shorter than the absolute path.s
 # - load will be modified to use an absolute path (they are not preprocessored, must be absolute)
 func modify_packages() -> PackageResult:
 	var res := DirUtils.walk_dir(ADDONS_DIR, true)
