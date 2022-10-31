@@ -8,8 +8,7 @@
 				"type": "script_name",
 				"value": "test"
 			}
-		},
-		"@bendn/test": "2.0.10"
+		}
 	},
 	"hooks": {
 		"pre_update": {

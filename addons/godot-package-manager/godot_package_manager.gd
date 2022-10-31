@@ -1,5 +1,302 @@
 extends Reference
 
+#region NPM utils
+
+class NPMUtils:
+	# Converts a package.json to a godot.package format
+	#
+	# @result: Dictionary
+	static func npm_to_godot(npm: Dictionary) -> Dictionary:
+		var new_d := {PackageKeys.PACKAGES: {}}
+		var npm_deps: Dictionary = npm.get(NpmPackageKeys.PACKAGES, {})
+		for pkg in npm_deps.keys():
+			new_d[PackageKeys.PACKAGES][pkg] = npm_deps[pkg]
+		return new_d
+
+	static func get_package_file(package_name: String, ver: String) -> PackageResult:
+		var res: PackageResult = yield(
+			NetUtils.send_get_request("https://cdn.jsdelivr.net", "npm/%s@%s/package.json" % [package_name, ver]),
+			"completed"
+		)
+		if res.is_err():
+			return res
+		res = Utils.json_to_dict(res.unwrap().get_string_from_utf8())
+		if res.is_err():
+			return res
+		return PackageResult.ok(res.unwrap())
+
+	static func get_package_file_godot(package_name: String, ver: String) -> PackageResult:
+		var res: PackageResult = yield(get_package_file(package_name, ver), "completed")
+		if res.is_err():
+			return res
+		return PackageResult.ok(npm_to_godot(res.unwrap()))
+
+
+#endregion
+
+
+#region misc utils
+class Utils:
+	# flattens a dictionary and returns a array of the values
+	static func flatten(d: Dictionary) -> Array:
+		var a := []
+		_flatten_inner(d, a)
+		return a
+
+
+	static func _flatten_inner(d: Dictionary, a: Array) -> void:
+		for v in d.values():
+			if v is Dictionary:
+				_flatten_inner(v, a)
+				continue
+			a.append(v)
+	
+	static func compile_regex(src: String) -> RegEx:
+		var r := RegEx.new()
+		r.compile(src)
+		return r
+
+	static func remove_start(string: String, remove: String) -> String:
+		if string.begins_with(remove):
+			return string.substr(len(remove))
+		return string
+
+	static func json_to_dict(json_string: String) -> PackageResult:
+		var parse_result := JSON.parse(json_string)
+		if parse_result.error != OK:
+			return PackageResult.err(Error.Code.INVALID_JSON)
+
+		if typeof(parse_result.result) != TYPE_DICTIONARY:
+			return PackageResult.err(Error.Code.UNEXPECTED_JSON_FORMAT)
+
+		return PackageResult.ok(parse_result.result)
+
+
+#endregion
+
+#region Network utils
+
+class NetUtils:
+	## Send a GET request to a given host/path
+	##
+	## @param: host: String - The host to connect to
+	## @param: path: String - The host path
+	##
+	## @return: PackageResult[PoolByteArray] - The response body
+	static func send_get_request(host: String, path: String) -> PackageResult:
+		var http := HTTPClient.new()
+
+		var err := http.connect_to_host(host, 443, true)
+		if err != OK:
+			return PackageResult.err(Error.Code.CONNECT_TO_HOST_FAILURE, host)
+
+		while http.get_status() in CONNECTING_STATUS:
+			http.poll()
+			yield(Engine.get_main_loop(), "idle_frame")
+
+		if http.get_status() != HTTPClient.STATUS_CONNECTED:
+			return PackageResult.err(Error.Code.UNABLE_TO_CONNECT_TO_HOST, host)
+
+		err = http.request(HTTPClient.METHOD_GET, "/%s" % path, HEADERS)
+		if err != OK:
+			return PackageResult.err(Error.Code.GET_REQUEST_FAILURE, path)
+
+		while http.get_status() == HTTPClient.STATUS_REQUESTING:
+			http.poll()
+			yield(Engine.get_main_loop(), "idle_frame")
+
+		if not http.get_status() in SUCCESS_STATUS:
+			return PackageResult.err(Error.Code.UNSUCCESSFUL_REQUEST, path)
+
+		if http.get_response_code() != 200:
+			return PackageResult.err(Error.Code.UNEXPECTED_STATUS_CODE, "%s - %d" % [path, http.get_response_code()])
+
+		var body := PoolByteArray()
+
+		while http.get_status() == HTTPClient.STATUS_BODY:
+			http.poll()
+
+			var chunk := http.read_response_body_chunk()
+			if chunk.size() == 0:
+				yield(Engine.get_main_loop(), "idle_frame")
+			else:
+				body.append_array(chunk)
+
+		return PackageResult.ok(body)
+
+
+#endregion
+
+#region Directory utils
+
+
+class DirUtils:
+	## Recursively finds all files in a directory. Nested directories are represented by further dicts
+	##
+	## @param: original_path: String - The absolute, root path of the directory. Used to strip out the full path
+	## @param: path: String - The current, absoulute search path
+	##
+	## @return: Dictionary<Dictionary> - The files + directories in the current `path`
+	##
+	## @example: original_path: /my/path/to/
+	##	{
+	##		"nested": {
+	##			"hello.gd": "/my/path/to/nested/hello.gd"
+	##		},
+	##		"file.gd": "/my/path/to/file.gd"
+	###	}
+	static func _get_files_recursive_inner(original_path: String, path: String) -> Dictionary:
+		var r := {}
+
+		var dir := Directory.new()
+		if dir.open(path) != OK:
+			printerr("Failed to open directory path: %s" % path)
+			return r
+
+		dir.list_dir_begin(true, false)
+
+		var file_name := dir.get_next()
+
+		while file_name != "":
+			var full_path := dir.get_current_dir().plus_file(file_name)
+			if dir.current_is_dir():
+				r[path.replace(original_path, "").plus_file(file_name)] = _get_files_recursive_inner(
+					original_path, full_path
+				)
+			else:
+				r[file_name] = full_path
+
+			file_name = dir.get_next()
+
+		return r
+
+	## Wrapper for _get_files_recursive(..., ...) omitting the `original_path` arg.
+	##
+	## @param: path: String - The path to search
+	##
+	## @return: Dictionary<Dictionary> - A recursively `Dictionary` of all files found at `path`
+	static func get_files_recursive(path: String) -> Dictionary:
+		return _get_files_recursive_inner(path, path)
+
+	## Removes a directory recursively
+	##
+	## @param: path: String - The path to remove
+	## @param: delete_base_dir: bool - Whether to remove the root directory at path as well
+	## @param: file_dict: Dictionary - The result of `_get_files_recursive` if available
+	##
+	## @return: int - The error code
+	static func remove_dir_recursive(path: String, delete_base_dir: bool = true, file_dict: Dictionary = {}) -> int:
+		var files := DirUtils.get_files_recursive(path) if file_dict.empty() else file_dict
+
+		for key in files.keys():
+			var file_path: String = path.plus_file(key)
+			var val = files[key]
+
+			if val is Dictionary:
+				if DirUtils.remove_dir_recursive(file_path, false) != OK:
+					printerr("Unable to remove_dir_recursive")
+					return ERR_BUG
+
+			if OS.move_to_trash(ProjectSettings.globalize_path(file_path)) != OK:
+				printerr("Unable to remove file at path: %s" % file_path)
+				return ERR_BUG
+
+		if delete_base_dir and OS.move_to_trash(ProjectSettings.globalize_path(path)) != OK:
+			printerr("Unable to remove file at path: %s" % path)
+			return ERR_BUG
+
+		return OK
+
+
+#endregion
+
+#region File utils
+
+
+class FileUtils:
+	static func save_string(string: String, path: String) -> PackageResult:
+		var file := File.new()
+		if file.open(path, File.WRITE) != OK:
+			return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, path)
+
+		file.store_string(string)
+		file.close()
+		return PackageResult.ok()
+
+	static func save_data(data: PoolByteArray, path: String) -> PackageResult:
+		var file := File.new()
+		if file.open(path, File.WRITE) != OK:
+			return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, path)
+
+		file.store_buffer(data)
+
+		file.close()
+
+		return PackageResult.ok()
+
+	static func read_file_to_string(path: String) -> PackageResult:
+		var file := File.new()
+		if file.open(path, File.READ) != OK:
+			return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, path)
+
+		var t := PackageResult.ok(file.get_as_text())
+		return t
+
+	static func absolute_to_relative(path: String, cwd: String, remove_res := true) -> String:
+		if remove_res:
+			path = Utils.remove_start(path, "res://")
+			cwd = Utils.remove_start(cwd, "res://")
+		var common := cwd
+		var result := ""
+		while Utils.remove_start(path, common) == path:
+			common = common.get_base_dir()
+
+			if !result:
+				result = ".."
+			else:
+				result = "../" + result
+
+		if common == "/":
+			result += "/"
+
+		var uncommon := Utils.remove_start(path, common)
+		if result and uncommon:
+			result += uncommon
+		elif uncommon:
+			result = uncommon.substr(1)
+		return result
+	
+	## Emulates `tar xzf <filename> --strip-components=1 -C <output_dir>`
+	##
+	## @param: file_path: String - The relative file path to a tar file
+	## @param: output_path: String - The file path to extract to
+	##
+	## @return: PackageResult[] - The result of the operation
+	static func xzf(file_path: String, output_path: String) -> PackageResult:
+		var output := []
+		var exit_code := OS.execute(
+			"tar",
+			[
+				"xzf",
+				ProjectSettings.globalize_path(file_path),
+				"--strip-components=1",
+				"-C",
+				ProjectSettings.globalize_path(output_path)
+			],
+			true,
+			output
+		)
+
+		# `tar xzf` should not produce any output
+		if exit_code != 0:
+			printerr(output)
+			return PackageResult.err(Error.Code.GENERIC, "Tar failed (%s)" % exit_code)
+
+		return PackageResult.ok()
+
+
+#endregion
+
 #region Error handling
 
 const DEFAULT_ERROR := "Default error"
@@ -63,10 +360,7 @@ class Error:
 		_description = description
 
 	func _to_string() -> String:
-		return (
-			"Code: %d\nName: %s\nDescription: %s"
-			% [_error, error_name(), _description]
-		)
+		return "Code: %d\nName: %s\nDescription: %s" % [_error, error_name(), _description]
 
 	func error_code() -> int:
 		return _error
@@ -148,9 +442,7 @@ class FailedPackages:
 class Hooks:
 	var _hooks := {}  # Hook name: String -> AdvancedExpression
 
-	func add(
-		hook_name: String, advanced_expression: AdvancedExpression
-	) -> void:
+	func add(hook_name: String, advanced_expression: AdvancedExpression) -> void:
 		_hooks[hook_name] = advanced_expression
 
 	## Runs the given hook if it exists. Requires the containing GPM to be passed
@@ -161,22 +453,19 @@ class Hooks:
 	##
 	## @return: Variant - The return value, if any. Will return `null` if the hook is not found
 	func run(gpm: Object, hook_name: String):
-		return (
-			_hooks[hook_name].execute([gpm])
-			if _hooks.has(hook_name)
-			else null
-		)
+		return _hooks[hook_name].execute([gpm]) if _hooks.has(hook_name) else null
 
 
 #region Package classes & cfg handling
 class Package:
-	var unscopedname: String setget , _get_unscoped_name
-	var package_name: String = ""
+	var unscoped_name: String setget , _get_unscoped_name
+	var name: String = ""
 	var download_dir: String = "" setget , _get_download_dir
-	var pkgintegrity: String = ""
-	var pakg_version: String = ""
-	var isdownloaded: bool = false setget , _get_is_downloaded
-	var indirect_pkg: bool = false
+	var integrity: String = ""
+	var version: String = ""
+	var installed: bool = false setget , _get_is_installed
+	var indirect: bool = false
+	var other_packages: PackageList
 
 	var required_when: AdvancedExpression = null
 	var optional_when: AdvancedExpression = null
@@ -186,66 +475,33 @@ class Package:
 	var gpm: Object = null
 
 	func _get_unscoped_name() -> String:
-		return package_name.get_file()
+		return name.get_file()
 
 	func _get_download_dir() -> String:
 		return (
-			(DEPENDENCIES_DIR_FORMAT % [self.unscopedname, pakg_version])
-			if indirect_pkg
-			else (ADDONS_DIR_FORMAT % self.unscopedname)
+			(DEPENDENCIES_DIR_FORMAT % [self.unscoped_name, version])
+			if indirect
+			else (ADDONS_DIR_FORMAT % self.unscoped_name)
 		)
 
-	func _get_is_downloaded() -> bool:
+	func _get_is_installed() -> bool:
 		return Directory.new().dir_exists(self.download_dir)
 
-	func _init(
-		name: String, version: String, gpm: Object, indirect: bool = false
-	):
-		package_name = name
-		pakg_version = version
+	func _init(name: String, version: String, gpm: Object, indirect: bool = false) -> void:
+		self.name = name
+		self.version = version
 		self.gpm = gpm
-		indirect_pkg = indirect
+		self.indirect = indirect
+		other_packages = gpm.pkg_configs
+
+	func _to_string() -> String:
+		return "[Package:%s@%s]" % [name, version]
 
 	#region utils (lowlevel stuff)
 
-	## Emulates `tar xzf <filename> --strip-components=1 -C <output_dir>`
-	##
-	## @param: file_path: String - The relative file path to a tar file
-	## @param: output_path: String - The file path to extract to
-	##
-	## @return: PackageResult[] - The result of the operation
-	static func xzf(file_path: String, output_path: String) -> PackageResult:
-		var output := []
-		var exit_code := OS.execute(
-			"tar",
-			[
-				"xzf",
-				ProjectSettings.globalize_path(file_path),
-				"--strip-components=1",
-				"-C",
-				ProjectSettings.globalize_path(output_path)
-			],
-			true,
-			output
-		)
-
-		# `tar xzf` should not produce any output
-		if exit_code != 0:
-			printerr(output)
-			return PackageResult.err(
-				Error.Code.GENERIC, "Tar failed (%s)" % exit_code
-			)
-
-		return PackageResult.ok()
-
 	func get_manifest() -> PackageResult:
 		npm_manifest = {}
-		var res: PackageResult = yield(
-			NetUtils.send_get_request(
-				REGISTRY, "%s/%s" % [package_name, pakg_version]
-			),
-			"completed"
-		)
+		var res: PackageResult = yield(NetUtils.send_get_request(REGISTRY, "%s/%s" % [name, version]), "completed")
 		if res.is_err():
 			return res
 
@@ -256,26 +512,17 @@ class Package:
 
 		var tmp_manifest: Dictionary = parse_res.unwrap()
 
-		if (
-			not tmp_manifest.has("dist")
-			and not tmp_manifest["dist"].has("tarball")
-		):
-			return PackageResult.err(
-				Error.Code.UNEXPECTED_DATA,
-				"%s - NPM manifest missing required fields" % package_name
-			)
+		if not NpmManifestKeys.DIST in tmp_manifest or not tmp_manifest[NpmManifestKeys.DIST].has(NpmManifestKeys.TARBALL):
+			return PackageResult.err(Error.Code.UNEXPECTED_DATA, "%s - NPM manifest missing required fields" % name)
 
 		npm_manifest = tmp_manifest
-		pkgintegrity = npm_manifest["dist"]["integrity"]
+		integrity = npm_manifest["dist"]["integrity"]
 		return PackageResult.ok(npm_manifest)
 
 	func get_tarball(download_location: String) -> PackageResult:
 		var res: PackageResult = yield(
 			NetUtils.send_get_request(
-				REGISTRY,
-				npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].replace(
-					REGISTRY, ""
-				)
+				REGISTRY, npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].replace(REGISTRY, "")
 			),
 			"completed"
 		)
@@ -288,38 +535,114 @@ class Package:
 			return res
 		return PackageResult.ok()
 
+
+	func _modify_script_loads(t: String, cwd: String) -> PackageResult:
+		var script_load_r := Utils.compile_regex('(pre)?load\\(\\"([^)]+)\\"\\)')
+		var offset := 0
+		var F := File.new()
+		for m in script_load_r.search_all(t):
+			# m.strings[(the entire match), (the pre part), (group1)]
+			var f: String = m.strings[2]
+			if F.file_exists(f) or F.file_exists(cwd.plus_file(f)):
+				continue
+			var is_preload = m.strings[1] == "pre"
+			var res := _modify_load(f, is_preload, cwd, ("preload" if is_preload else "load") + '("%s")')
+			if res.is_err():
+				return res
+			var p: String = res.unwrap()
+			var tmp := t.left(m.get_start() + offset) + p + t.right(m.get_end() + offset)
+			offset += len(tmp) - len(t)  # offset
+			t = tmp
+		return PackageResult.ok(t)
+
+
+	func _modify_scene_loads(t: String, cwd: String) -> PackageResult:
+		var scene_load_r := Utils.compile_regex('\\[ext_resource path="([^"]+)"')
+		var offset := 0
+		var F := File.new()
+		for m in scene_load_r.search_all(t):
+			var f: String = m.strings[1]
+			if F.file_exists(f) or F.file_exists(cwd.plus_file(f)):
+				continue
+			var res := _modify_load(f, false, cwd, '[ext_resource path="%s"')
+			if res.is_err():
+				return res
+			var p: String = res.unwrap()
+			var tmp := t.left(m.get_start() + offset) + p + t.right(m.get_end() + offset)
+			offset += len(tmp) - len(t)  # offset
+			t = tmp
+		return PackageResult.ok(t)
+
+
+	func _modify_load(path: String, is_preload: bool, cwd: String, f_str: String) -> PackageResult:
+		var F := File.new()
+		path = Utils.remove_start(path, "res://addons")
+		var split := path.split("/")
+		var wanted_addon := split[1]
+		var wanted_file := PoolStringArray(Array(split).slice(2, len(split) - 1)).join("/")
+		var noscope_cfg: Dictionary = {}
+		for pkg in other_packages._packages:
+			noscope_cfg[pkg.unscoped_name] = pkg.download_dir
+		if wanted_addon in noscope_cfg:
+			var wanted_f: String = noscope_cfg[wanted_addon].plus_file(wanted_file)
+			if is_preload:
+				var rel := FileUtils.absolute_to_relative(wanted_f, cwd)
+				if len(wanted_f) > len(rel):
+					wanted_f = rel
+			return PackageResult.ok(f_str % wanted_f)
+		return PackageResult.err(Error.Code.GENERIC, "Could not find path for %s" % path)
+
 	#endregion
 
+	# scan for load and preload funcs and have their paths modified
+	# - preload will be modified to use a relative path, if the relative path is shorter than the absolute path.s
+	# - load will be modified to use an absolute path (they are not preprocessored, must be absolute)
+	func modify() -> PackageResult:
+		if not self.installed:
+			return PackageResult.err(Error.Code.GENERIC, "Not installed")
+
+		for f in Utils.flatten(DirUtils.get_files_recursive(self.download_dir)):
+			if ResourceLoader.exists(f):
+				var ext: String = f.split(".")[-1]
+				var modify_func: FuncRef
+
+				if ext in ["gd", "gdscript"]:
+					modify_func = funcref(self, "_modify_script_loads")
+				elif ext in ["tscn"]:
+					modify_func = funcref(self, "_modify_scene_loads")
+				else:
+					continue
+				var res := FileUtils.read_file_to_string(f)
+
+				if res.is_err():
+					return res
+				var file_contents: String = res.unwrap()
+				res = modify_func.call_func(file_contents, f.get_base_dir())
+
+				if res.is_err():
+					return res
+				var new_file_contents: String = res.unwrap()
+				if file_contents != new_file_contents:
+					res = FileUtils.save_string(new_file_contents, f)
+					if res.is_err():
+						return res
+		return PackageResult.ok()
+
 	func download() -> PackageResult:
-		gpm.emit_signal("operation_checkpoint_reached", package_name)
+		gpm.emit_signal("operation_checkpoint_reached", name)
 		yield(Engine.get_main_loop(), "idle_frame")  # return a GDScriptFunctionState
-		for n in [
-			[required_when, PackageKeys.REQUIRED_WHEN],
-			[optional_when, PackageKeys.OPTIONAL_WHEN]
-		]:
+		for n in [[required_when, PackageKeys.REQUIRED_WHEN], [optional_when, PackageKeys.OPTIONAL_WHEN]]:
 			if n[0] != null:
 				var execute_value = n[0].execute([gpm])
 				if typeof(execute_value) == TYPE_BOOL:
 					match n[1]:
 						PackageKeys.REQUIRED_WHEN:
 							if execute_value == false:
-								gpm.emit_signal(
-									"message_logged",
-									(
-										"Skipping package %s because of condition"
-										% package_name
-									)
-								)
+								gpm.emit_signal("message_logged", "Skipping package %s because of condition" % name)
 								return PackageResult.ok()
 						PackageKeys.OPTIONAL_WHEN:
 							if execute_value == true:
-								gpm.emit_signal(
-									"message_logged",
-									(
-										"Skipping package %s because of condition"
-										% package_name
-									)
-								)
+								gpm.emit_signal("message_logged", "Skipping package %s because of condition" % name)
 								return PackageResult.ok()
 
 		var dir := Directory.new()
@@ -331,33 +654,28 @@ class Package:
 			ADDONS_DIR_FORMAT
 			% npm_manifest[NpmManifestKeys.DIST][NpmManifestKeys.TARBALL].get_file()
 		)
-		var res: PackageResult = yield(
-			get_tarball(download_location), "completed"
-		)
+		var res: PackageResult = yield(get_tarball(download_location), "completed")
 		if res.is_err():
 			return res
 
-		if (
-			not dir.dir_exists(self.download_dir)
-			and dir.make_dir_recursive(self.download_dir) != OK
-		):
+		if not dir.dir_exists(self.download_dir) and dir.make_dir_recursive(self.download_dir) != OK:
 			return PackageResult.err(Error.Code.CREATE_PACKAGE_DIR_FAILURE)
-		res = xzf(download_location, self.download_dir)
+		res = FileUtils.xzf(download_location, self.download_dir)
 		if not res or res.is_err():
 			return PackageResult.err(Error.Code.UNZIP_FAILURE)
 
 		if dir.remove(download_location) != OK:
 			return PackageResult.err(Error.Code.FILE_OPEN_FAILURE)
-		return PackageResult.ok()
+		return modify()
 
 
 class PackageList:
 	var _packages := []
 	var _iter_current: int
 
-	func add(package: Package) -> Package:
+	func add(package: Package) -> PackageList:
 		_packages.append(package)
-		return package
+		return self
 
 	func _should_continue() -> bool:
 		return len(_packages) > _iter_current
@@ -375,6 +693,9 @@ class PackageList:
 
 	func size() -> int:
 		return _packages.size()
+	
+	func _to_string() -> String:
+		return "PackageList" + str(_packages)
 
 
 class WantedPackages:
@@ -385,9 +706,7 @@ class WantedPackages:
 	func _init(gpm: Object) -> void:
 		self.gpm = gpm
 
-	func _add(
-		name: String, ver: String, cfg: Dictionary, __indirect := false
-	) -> PackageResult:
+	func _add(name: String, ver: String, cfg: Dictionary, __indirect := false) -> PackageResult:
 		var p := Package.new(name, ver, gpm, __indirect)
 		add(p)
 		#region scripts
@@ -396,9 +715,7 @@ class WantedPackages:
 			if typeof(data) == TYPE_DICTIONARY:
 				for n in [PackageKeys.REQUIRED_WHEN, PackageKeys.OPTIONAL_WHEN]:
 					if data.has(n):
-						var res: PackageResult = ScriptUtils.dict_to_script(
-							data[n], cfg
-						)
+						var res: PackageResult = ScriptUtils.dict_to_script(data[n], cfg)
 						if res.is_err():
 							return res
 						match n:
@@ -407,24 +724,16 @@ class WantedPackages:
 							PackageKeys.OPTIONAL_WHEN:
 								p.optional_when = res.unwrap()
 		#endregion
-		yield(p.get_manifest(), "completed")
+		var res: PackageResult = yield(p.get_manifest(), "completed")
+		if res.is_err():
+			return res
 		#region dependency sniffing
-		var res: PackageResult = yield(
-			NPMUtils.get_package_file_godot(name, ver), "completed"
-		)
+		res = yield(NPMUtils.get_package_file_godot(name, ver), "completed")
 		if res.is_err():
 			return res
 		var package_file: Dictionary = res.unwrap()
 		for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
-			res = yield(
-				_add(
-					package_name,
-					package_file[PackageKeys.PACKAGES][package_name],
-					{},
-					true
-				),
-				"completed"
-			)
+			res = yield(_add(package_name, package_file[PackageKeys.PACKAGES][package_name], {}, true), "completed")
 			if res.is_err():
 				return res
 		#endregion
@@ -465,9 +774,7 @@ class WantedPackages:
 	## @return: PackageResult<Dictionary> - The contents of the config file
 	static func read_config(file_name: String) -> PackageResult:
 		if not file_name in [PACKAGE_FILE, LOCK_FILE]:
-			return PackageResult.err(
-				Error.Code.GENERIC, "Unrecognized file %s" % file_name
-			)
+			return PackageResult.err(Error.Code.GENERIC, "Unrecognized file %s" % file_name)
 
 		var res = FileUtils.read_file_to_string(file_name)
 		if res.is_err():
@@ -479,10 +786,7 @@ class WantedPackages:
 
 		var data: Dictionary = res.unwrap()
 
-		if (
-			file_name == PACKAGE_FILE
-			and data.get(PackageKeys.PACKAGES, {}).empty()
-		):
+		if file_name == PACKAGE_FILE and data.get(PackageKeys.PACKAGES, {}).empty():
 			return PackageResult.err(Error.Code.NO_PACKAGES, file_name)
 
 		return PackageResult.ok(data)
@@ -494,9 +798,7 @@ class WantedPackages:
 	## @result: PackageResult<()> - The result of the operation
 	static func write_config(file_name: String, data: Dictionary) -> PackageResult:
 		if not file_name in [PACKAGE_FILE, LOCK_FILE]:
-			return PackageResult.err(
-				Error.Code.GENERIC, "Unrecognized file %s" % file_name
-			)
+			return PackageResult.err(Error.Code.GENERIC, "Unrecognized file %s" % file_name)
 
 		var file := File.new()
 		if file.open(file_name, File.WRITE) != OK:
@@ -516,23 +818,16 @@ class WantedPackages:
 	func lock() -> PackageResult:
 		var lock_file := {}
 		for pkg in self:
-			lock_file[pkg.package_name] = {
-				LockFileKeys.VERSION: pkg.pakg_version,
-				LockFileKeys.INTEGRITY: pkg.pkgintegrity,
+			lock_file[pkg.name] = {
+				LockFileKeys.VERSION: pkg.version,
+				LockFileKeys.INTEGRITY: pkg.integrity,
 			}
 		var res = write_config(LOCK_FILE, lock_file)
 		if not res or res.is_err():
-			return (
-				res
-				if res
-				else PackageResult.err(
-					Error.Code.GENERIC, "Unable to write configs"
-				)
-			)
+			return res if res else PackageResult.err(Error.Code.GENERIC, "Unable to write configs")
 		return PackageResult.ok()
 
 
-var pkg_configs := WantedPackages.new(self)
 #endregion
 
 #region Script/expression handling
@@ -747,6 +1042,7 @@ class AdvancedExpression:
 		functions.clear()
 		runner = Runner.new()
 
+
 class ScriptUtils:
 	static func _clean_text(text: String) -> PackageResult:
 		var whitespace_regex := RegEx.new()
@@ -800,9 +1096,7 @@ class ScriptUtils:
 			ae.add(line)
 
 		if ae.compile() != OK:
-			return PackageResult.err(
-				Error.Code.SCRIPT_COMPILE_FAILURE, "build_script"
-			)
+			return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, "build_script")
 
 		return PackageResult.ok(ae)
 
@@ -826,9 +1120,7 @@ class ScriptUtils:
 				TYPE_ARRAY:
 					var res = build_script(PoolStringArray(val).join("\n"))
 					if res.is_err():
-						return PackageResult.err(
-							Error.Code.SCRIPT_COMPILE_FAILURE, key
-						)
+						return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
 					hooks.add(key, res.unwrap())
 				TYPE_DICTIONARY:
 					var type = val.get("type", "")
@@ -836,32 +1128,22 @@ class ScriptUtils:
 					if type == "script":
 						var res = build_script(value)
 						if res.is_err():
-							return PackageResult.err(
-								Error.Code.SCRIPT_COMPILE_FAILURE, key
-							)
+							return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
 						hooks.add(key, res.unwrap())
 					elif type == "script_name":
 						if not data[PackageKeys.SCRIPTS].has(value):
-							return PackageResult.err(
-								Error.Code.MISSING_SCRIPT, key
-							)
+							return PackageResult.err(Error.Code.MISSING_SCRIPT, key)
 
 						var res = build_script(data[PackageKeys.SCRIPTS][value])
 						if res.is_err():
-							return PackageResult.err(
-								Error.Code.SCRIPT_COMPILE_FAILURE, key
-							)
+							return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
 						hooks.add(key, res.unwrap())
 					else:
-						return PackageResult.err(
-							Error.Code.BAD_SCRIPT_TYPE, value
-						)
+						return PackageResult.err(Error.Code.BAD_SCRIPT_TYPE, value)
 				_:
 					var res = build_script(val)
 					if res.is_err():
-						return PackageResult.err(
-							Error.Code.SCRIPT_COMPILE_FAILURE, key
-						)
+						return PackageResult.err(Error.Code.SCRIPT_COMPILE_FAILURE, key)
 					hooks.add(key, res.unwrap())
 
 		return PackageResult.ok(hooks)
@@ -878,27 +1160,18 @@ class ScriptUtils:
 				body = value
 			elif type == "script_name":
 				if not package_file[PackageKeys.SCRIPTS].has(value):
-					return PackageResult.err(
-						Error.Code.PARSE_FAILURE,
-						"Script does not exist %s" % value
-					)
+					return PackageResult.err(Error.Code.PARSE_FAILURE, "Script does not exist %s" % value)
 
 				body = package_file[PackageKeys.SCRIPTS][value]
 			else:
 				# Invalid type, assume the entire block is bad
-				return PackageResult.err(
-					Error.Code.PARSE_FAILURE,
-					"Invalid type %s, bailing out" % type
-				)
+				return PackageResult.err(Error.Code.PARSE_FAILURE, "Invalid type %s, bailing out" % type)
 		else:
 			body = body_data
-		var res = build_script(
-			body if body is String else PoolStringArray(body).join("\n")
-		)
+		var res = build_script(body if body is String else PoolStringArray(body).join("\n"))
 		if res.is_err():
 			return res
 		var code: AdvancedExpression = res.unwrap()
-		print(code)
 		return PackageResult.ok(code)
 
 
@@ -921,17 +1194,13 @@ const ADDONS_DIR := "res://addons"
 const ADDONS_DIR_FORMAT := ADDONS_DIR + "/%s"
 const DEPENDENCIES_DIR_FORMAT := "res://addons/__gpm_deps/%s/%s"
 
-const CONNECTING_STATUS := [
-	HTTPClient.STATUS_CONNECTING, HTTPClient.STATUS_RESOLVING
-]
+const CONNECTING_STATUS := [HTTPClient.STATUS_CONNECTING, HTTPClient.STATUS_RESOLVING]
 const SUCCESS_STATUS := [
 	HTTPClient.STATUS_BODY,
 	HTTPClient.STATUS_CONNECTED,
 ]
 
-const HEADERS := [
-	"User-Agent: GodotPackageManager/1.0 (you-win on GitHub)", "Accept: */*"
-]
+const HEADERS := ["User-Agent: GodotPackageManager/1.0 (you-win on GitHub)", "Accept: */*"]
 
 const PACKAGE_FILE := "godot.package"
 const PackageKeys := {
@@ -949,23 +1218,16 @@ const LockFileKeys := {
 }
 
 const NPM_PACKAGE_FILE := "package.json"
-const NpmManifestKeys := {
-	"VERSION": "version",
-	"DIST": "dist",
-	"INTEGRITY": "integrity",
-	"TARBALL": "tarball"
-}
+const NpmManifestKeys := {"VERSION": "version", "DIST": "dist", "INTEGRITY": "integrity", "TARBALL": "tarball"}
 const NpmPackageKeys := {
 	"PACKAGES": "dependencies",
 }
 
 const ValidHooks := {
-	"PRE_UPDATE": "pre_update",
-	"POST_UPDATE": "post_update",
-	"PRE_PURGE": "pre_purge",
-	"POST_PURGE": "post_purge"
+	"PRE_UPDATE": "pre_update", "POST_UPDATE": "post_update", "PRE_PURGE": "pre_purge", "POST_PURGE": "post_purge"
 }
 
+var pkg_configs := WantedPackages.new(self)
 #endregion
 
 ###############################################################################
@@ -977,329 +1239,6 @@ const ValidHooks := {
 ###############################################################################
 
 ###############################################################################
-# Private functions                                                           #
-###############################################################################
-
-
-# flattens a dictionary and returns a array of the values
-static func _flatten(d: Dictionary) -> Array:
-	var a := []
-	_flatten_inner(d, a)
-	return a
-
-
-static func _flatten_inner(d: Dictionary, a: Array):
-	for v in d.values():
-		if v is Dictionary:
-			_flatten_inner(v, a)
-			continue
-		a.append(v)
-
-
-static func compile_regex(src: String) -> RegEx:
-	var r := RegEx.new()
-	r.compile(src)
-	return r
-
-
-#region NPM utils
-
-
-class NPMUtils:
-	# Converts a package.json to a godot.package format
-	#
-	# @result: Dictionary
-	static func npm_to_godot(npm: Dictionary) -> Dictionary:
-		var new_d := {PackageKeys.PACKAGES: {}}
-		var npm_deps: Dictionary = npm.get(NpmPackageKeys.PACKAGES, {})
-		for pkg in npm_deps.keys():
-			new_d[PackageKeys.PACKAGES][pkg] = npm_deps[pkg]
-		return new_d
-
-	static func get_package_file(package_name: String, ver: String) -> PackageResult:
-		var res: PackageResult = yield(
-			NetUtils.send_get_request(
-				"https://cdn.jsdelivr.net",
-				"npm/%s@%s/package.json" % [package_name, ver]
-			),
-			"completed"
-		)
-		if res.is_err():
-			return res
-		res = Utils.json_to_dict(res.unwrap().get_string_from_utf8())
-		if res.is_err():
-			return res
-		return PackageResult.ok(res.unwrap())
-
-	static func get_package_file_godot(
-		package_name: String, ver: String
-	) -> PackageResult:
-		var res: PackageResult = yield(
-			get_package_file(package_name, ver), "completed"
-		)
-		if res.is_err():
-			return res
-		return PackageResult.ok(npm_to_godot(res.unwrap()))
-
-
-#endregion
-
-
-#region misc utils
-class Utils:
-	static func remove_start(string: String, remove: String) -> String:
-		if string.begins_with(remove):
-			return string.substr(len(remove))
-		return string
- 
-	static func json_to_dict(json_string: String) -> PackageResult:
-		var parse_result := JSON.parse(json_string)
-		if parse_result.error != OK:
-			return PackageResult.err(Error.Code.INVALID_JSON)
-
-		if typeof(parse_result.result) != TYPE_DICTIONARY:
-			return PackageResult.err(Error.Code.UNEXPECTED_JSON_FORMAT)
-
-		return PackageResult.ok(parse_result.result)
-
-
-#endregion
-
-#region Network utils
-
-
-class NetUtils:
-	## Send a GET request to a given host/path
-	##
-	## @param: host: String - The host to connect to
-	## @param: path: String - The host path
-	##
-	## @return: PackageResult[PoolByteArray] - The response body
-	static func send_get_request(host: String, path: String) -> PackageResult:
-		var http := HTTPClient.new()
-
-		var err := http.connect_to_host(host, 443, true)
-		if err != OK:
-			return PackageResult.err(Error.Code.CONNECT_TO_HOST_FAILURE, host)
-
-		while http.get_status() in CONNECTING_STATUS:
-			http.poll()
-			yield(Engine.get_main_loop(), "idle_frame")
-
-		if http.get_status() != HTTPClient.STATUS_CONNECTED:
-			return PackageResult.err(Error.Code.UNABLE_TO_CONNECT_TO_HOST, host)
-
-		err = http.request(HTTPClient.METHOD_GET, "/%s" % path, HEADERS)
-		if err != OK:
-			return PackageResult.err(Error.Code.GET_REQUEST_FAILURE, path)
-
-		while http.get_status() == HTTPClient.STATUS_REQUESTING:
-			http.poll()
-			yield(Engine.get_main_loop(), "idle_frame")
-
-		if not http.get_status() in SUCCESS_STATUS:
-			return PackageResult.err(Error.Code.UNSUCCESSFUL_REQUEST, path)
-
-		if http.get_response_code() != 200:
-			return PackageResult.err(
-				Error.Code.UNEXPECTED_STATUS_CODE,
-				"%s - %d" % [path, http.get_response_code()]
-			)
-
-		var body := PoolByteArray()
-
-		while http.get_status() == HTTPClient.STATUS_BODY:
-			http.poll()
-
-			var chunk := http.read_response_body_chunk()
-			if chunk.size() == 0:
-				yield(Engine.get_main_loop(), "idle_frame")
-			else:
-				body.append_array(chunk)
-
-		return PackageResult.ok(body)
-
-
-#endregion
-
-#region Directory utils
-
-
-class DirUtils:
-	## Recursively finds all files in a directory. Nested directories are represented by further dicts
-	##
-	## @param: original_path: String - The absolute, root path of the directory. Used to strip out the full path
-	## @param: path: String - The current, absoulute search path
-	##
-	## @return: Dictionary<Dictionary> - The files + directories in the current `path`
-	##
-	## @example: original_path: /my/path/to/
-	##	{
-	##		"nested": {
-	##			"hello.gd": "/my/path/to/nested/hello.gd"
-	##		},
-	##		"file.gd": "/my/path/to/file.gd"
-	###	}
-	static func _get_files_recursive_inner(
-		original_path: String, path: String
-	) -> Dictionary:
-		var r := {}
-
-		var dir := Directory.new()
-		if dir.open(path) != OK:
-			printerr("Failed to open directory path: %s" % path)
-			return r
-
-		dir.list_dir_begin(true, false)
-
-		var file_name := dir.get_next()
-
-		while file_name != "":
-			var full_path := dir.get_current_dir().plus_file(file_name)
-			if dir.current_is_dir():
-				r[path.replace(original_path, "").plus_file(file_name)] = _get_files_recursive_inner(
-					original_path, full_path
-				)
-			else:
-				r[file_name] = full_path
-
-			file_name = dir.get_next()
-
-		return r
-
-	# returns toplevel directory entrys
-	#
-	# @result PackageResult<PoolStringArray>
-	static func walk_dir(path: String, dir_only := false) -> PackageResult:
-		var files: PoolStringArray = []
-		var dir := Directory.new()
-		var e := dir.open(path)
-		if e:
-			return PackageResult.err(10, "Directory open failed")
-		dir.list_dir_begin(true, false)  # list the directory
-		var file_name := dir.get_next()  # get the next file
-		while file_name != "":
-			if dir_only:
-				if dir.current_is_dir():
-					files.append(path.plus_file(file_name))  # add the folder
-			else:
-				files.append(path.plus_file(file_name.split(".", true, 1)[0]))  # add the file
-			file_name = dir.get_next()  # get the next file
-		return PackageResult.ok(files)
-
-	## Wrapper for _get_files_recursive(..., ...) omitting the `original_path` arg.
-	##
-	## @param: path: String - The path to search
-	##
-	## @return: Dictionary<Dictionary> - A recursively `Dictionary` of all files found at `path`
-	static func get_files_recursive(path: String) -> Dictionary:
-		return _get_files_recursive_inner(path, path)
-
-	## Removes a directory recursively
-	##
-	## @param: path: String - The path to remove
-	## @param: delete_base_dir: bool - Whether to remove the root directory at path as well
-	## @param: file_dict: Dictionary - The result of `_get_files_recursive` if available
-	##
-	## @return: int - The error code
-	static func remove_dir_recursive(
-		path: String, delete_base_dir: bool = true, file_dict: Dictionary = {}
-	) -> int:
-		var files := (
-			DirUtils.get_files_recursive(path)
-			if file_dict.empty()
-			else file_dict
-		)
-
-		for key in files.keys():
-			var file_path: String = path.plus_file(key)
-			var val = files[key]
-
-			if val is Dictionary:
-				if DirUtils.remove_dir_recursive(file_path, false) != OK:
-					printerr("Unable to remove_dir_recursive")
-					return ERR_BUG
-
-			if (
-				OS.move_to_trash(ProjectSettings.globalize_path(file_path))
-				!= OK
-			):
-				printerr("Unable to remove file at path: %s" % file_path)
-				return ERR_BUG
-
-		if (
-			delete_base_dir
-			and OS.move_to_trash(ProjectSettings.globalize_path(path)) != OK
-		):
-			printerr("Unable to remove file at path: %s" % path)
-			return ERR_BUG
-
-		return OK
-
-
-#endregion
-
-#region File utils
-
-
-class FileUtils:
-	static func save_string(string: String, path: String) -> PackageResult:
-		var file := File.new()
-		if file.open(path, File.WRITE) != OK:
-			return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, path)
-
-		file.store_string(string)
-		file.close()
-		return PackageResult.ok()
-
-	static func save_data(data: PoolByteArray, path: String) -> PackageResult:
-		var file := File.new()
-		if file.open(path, File.WRITE) != OK:
-			return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, path)
-
-		file.store_buffer(data)
-
-		file.close()
-
-		return PackageResult.ok()
-
-	static func read_file_to_string(path: String) -> PackageResult:
-		var file := File.new()
-		if file.open(path, File.READ) != OK:
-			return PackageResult.err(Error.Code.FILE_OPEN_FAILURE, path)
-
-		var t := PackageResult.ok(file.get_as_text())
-		return t
-
-
-	static func absolute_to_relative(path: String, cwd: String, remove_res := true) -> String:
-		if remove_res:
-			path = Utils.remove_start(path, "res://")
-			cwd = Utils.remove_start(cwd, "res://")
-		var common := cwd
-		var result := ""
-		while Utils.remove_start(path, common) == path:
-			common = common.get_base_dir()
-
-			if !result:
-				result = ".."
-			else:
-				result = "../" + result
-		
-		if common == "/":
-			result += "/"
-
-		var uncommon := Utils.remove_start(path, common)
-		if result and uncommon:
-			result += uncommon
-		elif uncommon:
-			result = uncommon.substr(1)
-		return result
-
-
-#endregion
-
-###############################################################################
 # Public functions                                                            #
 ###############################################################################
 
@@ -1309,131 +1248,17 @@ func print(text: String) -> void:
 	emit_signal("message_logged", text)
 
 
-var script_load_r := compile_regex('(pre)?load\\(\\"([^)]+)\\"\\)')
-func _modify_script_loads(t: String, cwd: String) -> PackageResult:
-	var offset := 0
-	var F := File.new()
-	for m in script_load_r.search_all(t):
-		# m.strings[(the entire match), (the pre part), (group1)]
-		var f: String = m.strings[2]
-		if F.file_exists(f) or F.file_exists(cwd.plus_file(f)):
-			continue
-		var is_preload = m.strings[1] == "pre"
-		var res := _modify_load(
-			f, is_preload, cwd, ("preload" if is_preload else "load") + '("%s")'
-		)
-		if res.is_err():
-			return res
-		var p: String = res.unwrap()
-		var tmp := (
-			t.left(m.get_start() + offset)
-			+ p
-			+ t.right(m.get_end() + offset)
-		)
-		offset += len(tmp) - len(t)  # offset
-		t = tmp
-	return PackageResult.ok(t)
-
-
-var scene_load_r := compile_regex('\\[ext_resource path="([^"]+)"')
-func _modify_scene_loads(t: String, cwd: String) -> PackageResult:
-	var offset := 0
-	var F := File.new()
-	for m in scene_load_r.search_all(t):
-		var f: String = m.strings[1]
-		if F.file_exists(f) or F.file_exists(cwd.plus_file(f)):
-			continue
-		var res := _modify_load(f, false, cwd, '[ext_resource path="%s"')
-		if res.is_err():
-			return res
-		var p: String = res.unwrap()
-		var tmp := (
-			t.left(m.get_start() + offset)
-			+ p
-			+ t.right(m.get_end() + offset)
-		)
-		offset += len(tmp) - len(t)  # offset
-		t = tmp
-	return PackageResult.ok(t)
-
-
-func _modify_load(
-	path: String, is_preload: bool, cwd: String, f_str: String
-) -> PackageResult:
-	var F := File.new()
-	path = Utils.remove_start(path, "res://addons")
-	var split := path.split("/")
-	var wanted_addon := split[1]
-	var wanted_file := PoolStringArray(Array(split).slice(2, len(split) - 1)).join(
-		"/"
-	)
-	var noscope_cfg: Dictionary = {}
-	for pkg in pkg_configs:
-		noscope_cfg[pkg.unscopedname] = pkg.download_dir
-	if wanted_addon in noscope_cfg:
-		var wanted_f: String = noscope_cfg[wanted_addon].plus_file(wanted_file)
-		if is_preload:
-			var rel := FileUtils.absolute_to_relative(wanted_f, cwd)
-			if len(wanted_f) > len(rel):
-				wanted_f = rel
-		return PackageResult.ok(f_str % wanted_f)
-	return PackageResult.err(
-		Error.Code.GENERIC, "Could not find path for %s" % path
-	)
-
-
-# scan for load and preload funcs and have their paths modified
-# - preload will be modified to use a relative path, if the relative path is shorter than the absolute path.s
-# - load will be modified to use an absolute path (they are not preprocessored, must be absolute)
-func modify_packages() -> PackageResult:
-	var res := DirUtils.walk_dir(ADDONS_DIR, true)
-	if res.is_err():
-		return res
-	var packages: Array = res.unwrap()
-	var F := File.new()
-	for pkgpath in packages:
-		var pkgname: String = pkgpath.replace("res://addons/", "")
-		if pkgname == "godot-package-manager":
-			continue
-		else:
-			for f in _flatten(DirUtils.get_files_recursive(pkgpath)):
-				if ResourceLoader.exists(f):
-					var ext: String = f.split(".")[-1]
-					var modify_func: FuncRef
-
-					if ext in ["gd", "gdscript"]:
-						modify_func = funcref(self, "_modify_script_loads")
-					elif ext in ["tscn"]:
-						modify_func = funcref(self, "_modify_scene_loads")
-					else:
-						continue
-					res = FileUtils.read_file_to_string(f)
-
-					if res.is_err():
-						return res
-					var file_contents: String = res.unwrap()
-					res = modify_func.call_func(file_contents, f.get_base_dir())
-
-					if res.is_err():
-						return res
-					var new_file_contents: String = res.unwrap()
-					if file_contents != new_file_contents:
-						res = FileUtils.save_string(new_file_contents, f)
-						if res.is_err():
-							return res
-	return PackageResult.ok()
-
-
 ## Reads the `godot.package` file and updates all packages. A `godot.lock` file is also written afterwards.
 ##
 ## @result: PackageResult<()> - The result of the operation
 func update() -> PackageResult:
-	yield(pkg_configs.update(), "completed")
+	var res: PackageResult = yield(pkg_configs.update(), "completed")
+	if res.is_err():
+		return res
+
 	var pre_update_res = pkg_configs.run_hook(ValidHooks.PRE_UPDATE)
 	if typeof(pre_update_res) == TYPE_BOOL and pre_update_res == false:
-		emit_signal(
-			"message_logged", "Hook %s returned false" % ValidHooks.PRE_UPDATE
-		)
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_UPDATE)
 		return PackageResult.ok()
 
 	var dir := Directory.new()
@@ -1443,26 +1268,23 @@ func update() -> PackageResult:
 	# Used for compiling together all errors that may occur
 	var failed_packages := FailedPackages.new()
 	for pkg in pkg_configs:
-		var res: PackageResult = yield(pkg.download(), "completed")
+		res = yield(pkg.download(), "completed")
 		if res.is_err():
-			failed_packages.add(pkg.package_name, str(res))
-
-	var res = modify_packages()
+			failed_packages.add(pkg.name, str(res))
+	
+	res = pkg_configs.lock()
 	if res.is_err():
-		printerr(res)
+		return res
+
 	emit_signal("operation_finished")
 
 	var post_update_res = pkg_configs.run_hook(ValidHooks.POST_UPDATE)
 	if typeof(post_update_res) == TYPE_BOOL and post_update_res == false:
-		emit_signal(
-			"message_logged", "Hook %s returned false" % ValidHooks.POST_UPDATE
-		)
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_UPDATE)
 		return PackageResult.ok()
 
 	if failed_packages.has_logs():
-		return PackageResult.err(
-			Error.Code.PROCESS_PACKAGES_FAILURE, failed_packages.get_logs()
-		)
+		return PackageResult.err(Error.Code.PROCESS_PACKAGES_FAILURE, failed_packages.get_logs())
 
 	return PackageResult.ok()
 
@@ -1471,46 +1293,40 @@ func update() -> PackageResult:
 ##
 ## @return: PackageResult<()> - The result of the operation
 func purge() -> PackageResult:
-	yield(pkg_configs.update(), "completed")
+	var res: PackageResult = yield(pkg_configs.update(), "completed")
+	if res.is_err():
+		return res
 	var pre_purge_res = pkg_configs.run_hook(ValidHooks.PRE_PURGE)
 	if typeof(pre_purge_res) == TYPE_BOOL and pre_purge_res == false:
-		emit_signal(
-			"message_logged", "Hook %s returned false" % ValidHooks.PRE_PURGE
-		)
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_PURGE)
 		return PackageResult.ok()
 
 	var dir := Directory.new()
 
 	var installed_pkgs := []
 	for p in pkg_configs:
-		if p.isdownloaded:
+		if p.installed:
 			installed_pkgs.append(p)
 	emit_signal("operation_started", "purge", installed_pkgs.size())
 
 	var failed_packages := FailedPackages.new()
 	var completed_package_count: int = 0
 	for pkg in installed_pkgs:
-		emit_signal("operation_checkpoint_reached", pkg.package_name)
+		emit_signal("operation_checkpoint_reached", pkg.name)
 		if dir.dir_exists(pkg.download_dir):
 			if DirUtils.remove_dir_recursive(pkg.download_dir) != OK:
-				failed_packages.add(
-					pkg.package_name, "Unable to remove directory"
-				)
+				failed_packages.add(pkg.name, "Unable to remove directory")
 				continue
 
 	emit_signal("operation_finished")
 
 	var post_purge_res = pkg_configs.run_hook(ValidHooks.POST_PURGE)
 	if typeof(post_purge_res) == TYPE_BOOL and post_purge_res == false:
-		emit_signal(
-			"message_logged", "Hook %s returned false" % ValidHooks.POST_PURGE
-		)
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_PURGE)
 		return PackageResult.ok()
 
 	return (
 		PackageResult.ok()
 		if not failed_packages.has_logs()
-		else PackageResult.err(
-			Error.Code.REMOVE_PACKAGE_DIR_FAILURE, failed_packages.get_logs()
-		)
+		else PackageResult.err(Error.Code.REMOVE_PACKAGE_DIR_FAILURE, failed_packages.get_logs())
 	)
