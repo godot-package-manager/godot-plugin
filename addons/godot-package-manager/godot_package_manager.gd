@@ -71,6 +71,8 @@ class Utils:
 
 		return PackageResult.ok(parse_result.result)
 
+	static func insert(t: String, insertion: String, begin: int, end: int) -> String:
+		return t.left(begin) + insertion + t.right(end)
 
 #endregion
 
@@ -538,43 +540,44 @@ class Package:
 	func _modify_script_loads(t: String, cwd: String) -> PackageResult:
 		var script_load_r := Utils.compile_regex('(pre)?load\\(\\"([^)]+)\\"\\)')
 		var offset := 0
-		var F := File.new()
 		for m in script_load_r.search_all(t):
 			# m.strings[(the entire match), (the pre part), (group1)]
-			var f: String = m.strings[2]
-			if F.file_exists(f) or F.file_exists(cwd.plus_file(f)):
-				continue
 			var is_preload = m.strings[1] == "pre"
-			var res := _modify_load(f, is_preload, cwd, ("preload" if is_preload else "load") + '("%s")')
+			var res := _modify_load(m.strings[2], is_preload, cwd, ("preload" if is_preload else "load") + '("%s")')
 			if res.is_err():
 				return res
 			var p: String = res.unwrap()
-			var tmp := t.left(m.get_start() + offset) + p + t.right(m.get_end() + offset)
-			offset += len(tmp) - len(t)  # offset
-			t = tmp
+			if p.empty(): continue
+			var t_l := len(t)
+			t = Utils.insert(t, p, m.get_start() + offset, m.get_end() + offset)
+			offset += len(t) - t_l
 		return PackageResult.ok(t)
 
 
 	func _modify_scene_loads(t: String, cwd: String) -> PackageResult:
 		var scene_load_r := Utils.compile_regex('\\[ext_resource path="([^"]+)"')
 		var offset := 0
-		var F := File.new()
 		for m in scene_load_r.search_all(t):
-			var f: String = m.strings[1]
-			if F.file_exists(f) or F.file_exists(cwd.plus_file(f)):
-				continue
-			var res := _modify_load(f, false, cwd, '[ext_resource path="%s"')
+			var res := _modify_load(m.strings[1], false, cwd, '[ext_resource path="%s"')
 			if res.is_err():
 				return res
 			var p: String = res.unwrap()
-			var tmp := t.left(m.get_start() + offset) + p + t.right(m.get_end() + offset)
-			offset += len(tmp) - len(t)  # offset
-			t = tmp
+			if p.empty(): continue
+			var t_l := len(t)
+			t = Utils.insert(t, p, m.get_start() + offset, m.get_end() + offset)
+			offset += len(t) - t_l
 		return PackageResult.ok(t)
 
 
 	func _modify_load(path: String, is_preload: bool, cwd: String, f_str: String) -> PackageResult:
 		var F := File.new()
+		if F.file_exists(path) or F.file_exists(cwd.plus_file(path)):
+			var is_rel := path.begins_with(".")
+			if not is_rel:
+				var rel := FileUtils.absolute_to_relative(path, cwd)
+				if len(path) > len(rel):
+					return PackageResult.ok(f_str % rel)
+			return PackageResult.ok("")
 		path = Utils.remove_start(path, "res://addons")
 		var split := path.split("/")
 		var wanted_addon := split[1]
@@ -587,7 +590,7 @@ class Package:
 			if is_preload:
 				var rel := FileUtils.absolute_to_relative(wanted_f, cwd)
 				if len(wanted_f) > len(rel):
-					wanted_f = rel
+					PackageResult.ok(f_str % rel)
 			return PackageResult.ok(f_str % wanted_f)
 		return PackageResult.err(Error.Code.GENERIC, "Could not find path for %s" % path)
 
