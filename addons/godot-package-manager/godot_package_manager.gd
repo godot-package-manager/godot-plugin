@@ -554,7 +554,7 @@ class Package:
 		return PackageResult.ok(t)
 
 
-	func _modify_scene_loads(t: String, cwd: String) -> PackageResult:
+	func _modify_text_resource_loads(t: String, cwd: String) -> PackageResult:
 		var scene_load_r := Utils.compile_regex('\\[ext_resource path="([^"]+)"')
 		var offset := 0
 		for m in scene_load_r.search_all(t):
@@ -610,8 +610,8 @@ class Package:
 
 				if ext in ["gd", "gdscript"]:
 					modify_func = funcref(self, "_modify_script_loads")
-				elif ext in ["tscn"]:
-					modify_func = funcref(self, "_modify_scene_loads")
+				elif ext in ["tscn", "tres"]:
+					modify_func = funcref(self, "_modify_text_resource_loads")
 				else:
 					continue
 				var res := FileUtils.read_file_to_string(f)
