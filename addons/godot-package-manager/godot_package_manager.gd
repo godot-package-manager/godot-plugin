@@ -465,7 +465,7 @@ class Package:
 	var version: String = ""
 	var installed: bool = false setget , _get_is_installed
 	var indirect: bool = false
-	var other_packages: PackageList
+	var dependencies := PackageList.new()
 
 	var required_when: AdvancedExpression = null
 	var optional_when: AdvancedExpression = null
@@ -492,7 +492,6 @@ class Package:
 		self.version = version
 		self.gpm = gpm
 		self.indirect = indirect
-		other_packages = gpm.pkg_configs
 
 	func _to_string() -> String:
 		return "[Package:%s@%s]" % [name, version]
@@ -581,7 +580,7 @@ class Package:
 		var wanted_addon := split[1]
 		var wanted_file := PoolStringArray(Array(split).slice(2, len(split) - 1)).join("/")
 		var noscope_cfg: Dictionary = {}
-		for pkg in other_packages._packages:
+		for pkg in dependencies:
 			noscope_cfg[pkg.unscoped_name] = pkg.download_dir
 		if wanted_addon in noscope_cfg:
 			var wanted_f: String = noscope_cfg[wanted_addon].plus_file(wanted_file)
@@ -667,6 +666,9 @@ class Package:
 		if dir.remove(download_location) != OK:
 			return PackageResult.err(Error.Code.FILE_OPEN_FAILURE)
 		return modify()
+	
+	func depend(on: Package) -> void:
+		dependencies.append(on)
 
 
 class PackageList:
@@ -676,6 +678,9 @@ class PackageList:
 	func add(package: Package) -> PackageList:
 		_packages.append(package)
 		return self
+	
+	func append(package: Package) -> void:
+		_packages.append(package)
 
 	func _should_continue() -> bool:
 		return len(_packages) > _iter_current
@@ -706,12 +711,11 @@ class WantedPackages:
 	func _init(gpm: Object) -> void:
 		self.gpm = gpm
 
-	func _add(name: String, ver: String, cfg: Dictionary, __indirect := false) -> PackageResult:
-		var p := Package.new(name, ver, gpm, __indirect)
-		add(p)
+	func _add(p: Package, cfg: Dictionary) -> PackageResult:
+		append(p)
 		#region scripts
-		if __indirect == false:
-			var data = cfg[PackageKeys.PACKAGES][name]
+		if p.indirect == false:
+			var data = cfg[PackageKeys.PACKAGES][p.name]
 			if typeof(data) == TYPE_DICTIONARY:
 				for n in [PackageKeys.REQUIRED_WHEN, PackageKeys.OPTIONAL_WHEN]:
 					if data.has(n):
@@ -728,12 +732,14 @@ class WantedPackages:
 		if res.is_err():
 			return res
 		#region dependency sniffing
-		res = yield(NPMUtils.get_package_file_godot(name, ver), "completed")
+		res = yield(NPMUtils.get_package_file_godot(p.name, p.version), "completed")
 		if res.is_err():
 			return res
 		var package_file: Dictionary = res.unwrap()
 		for package_name in package_file.get(PackageKeys.PACKAGES, {}).keys():
-			res = yield(_add(package_name, package_file[PackageKeys.PACKAGES][package_name], {}, true), "completed")
+			var dep := Package.new(package_name, package_file[PackageKeys.PACKAGES][package_name], gpm, true)
+			p.depend(dep)
+			res = yield(_add(dep, {}), "completed")
 			if res.is_err():
 				return res
 		#endregion
@@ -754,7 +760,7 @@ class WantedPackages:
 				else cfg[PackageKeys.PACKAGES][pkg]
 			)
 
-			res = yield(_add(pkg, v, cfg), "completed")
+			res = yield(_add(Package.new(pkg, v, gpm), cfg), "completed")
 			if res.is_err():
 				return res
 
