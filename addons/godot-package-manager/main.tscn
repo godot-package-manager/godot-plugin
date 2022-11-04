@@ -37,15 +37,9 @@ margin_right = 259.0
 margin_bottom = 20.0
 text = "Update"
 
-[node name="ForceUpdate" type="Button" parent="VBoxContainer/HBoxContainer"]
-margin_left = 263.0
-margin_right = 360.0
-margin_bottom = 20.0
-text = "Force Update"
-
 [node name="Clear" type="Button" parent="VBoxContainer/HBoxContainer"]
-margin_left = 364.0
-margin_right = 408.0
+margin_left = 263.0
+margin_right = 307.0
 margin_bottom = 20.0
 text = "Clear"
 

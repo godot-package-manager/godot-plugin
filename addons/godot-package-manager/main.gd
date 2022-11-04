@@ -26,17 +26,9 @@ func _ready() -> void:
 	edit_package_button.hint_tooltip = "Edit the godot.package file"
 	edit_package_button.connect("pressed", self, "_on_edit_package")
 	
-	var status_button := $VBoxContainer/HBoxContainer/Status as Button
-	status_button.hint_tooltip = "Get the current package status"
-	status_button.connect("pressed", self, "_on_status")
-	
 	var update_button := $VBoxContainer/HBoxContainer/Update as Button
-	update_button.hint_tooltip = "Update all packages, skipping packages if they are up-to-date"
-	update_button.connect("pressed", self, "_on_update", [false])
-	
-	var force_update_button := $VBoxContainer/HBoxContainer/ForceUpdate as Button
-	force_update_button.hint_tooltip = "Update all packages, deleting them if they already exist"
-	force_update_button.connect("pressed", self, "_on_update", [true])
+	update_button.hint_tooltip = "Update all packages, ruthlessly"
+	update_button.connect("pressed", self, "_on_update")
 	
 	var clear_button := $VBoxContainer/HBoxContainer/Clear as Button
 	clear_button.hint_tooltip = "Clear the console"
@@ -144,29 +136,9 @@ func _save_edit_package(node: Node, status_bar: Label, text_edit: TextEdit) -> v
 
 #endregion
 
-func _on_status() -> void:
-	_log("Getting package status")
-	var res = yield(gpm.dry_run(), "completed")
-	if res.is_ok():
-		var data: Dictionary = res.unwrap()
-		if data.get(gpm.DryRunValues.OK, false):
-			_log("All packages okay, no update required")
-			return
-		
-		if not data.get(gpm.DryRunValues.UPDATE, []).empty():
-			_log("Packages to update:")
-			for i in data[gpm.DryRunValues.UPDATE]:
-				_log(i)
-		if not data.get(gpm.DryRunValues.INVALID, []).empty():
-			_log("Invalid packages:")
-			for i in data[gpm.DryRunValues.INVALID]:
-				_log(i)
-	else:
-		_log(res.unwrap_err().to_string())
-
-func _on_update(force: bool) -> void:
+func _on_update() -> void:
 	_log("Updating all valid packages")
-	var res = yield(gpm.update(force), "completed")
+	var res = yield(gpm.update(), "completed")
 	if res.is_ok():
 		_log("Update successful")
 	else:
