@@ -14,7 +14,11 @@
 		"pre_update": {
 			"type": "script",
 			"value": "gpm.print('pre update')"
-		}
+		},
+		"pre_dry_run": "gpm.print('dry run is going to run!')",
+		"post_dry_run": "
+			gpm.print('goodbye')
+		",
 	},
 	"scripts": {
 		"test": "

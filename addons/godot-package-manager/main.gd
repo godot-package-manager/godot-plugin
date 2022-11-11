@@ -25,6 +25,10 @@ func _ready() -> void:
 	var edit_package_button := $VBoxContainer/HBoxContainer/EditPackage as Button
 	edit_package_button.hint_tooltip = "Edit the godot.package file"
 	edit_package_button.connect("pressed", self, "_on_edit_package")
+
+	var status_button := $VBoxContainer/HBoxContainer/Status as Button
+	status_button.hint_tooltip = "Get the current package status"
+	status_button.connect("pressed", self, "_on_status")
 	
 	var update_button := $VBoxContainer/HBoxContainer/Update as Button
 	update_button.hint_tooltip = "Update all packages, ruthlessly"
@@ -48,24 +52,19 @@ func _ready() -> void:
 func _on_edit_package() -> void:
 	var popup := WindowDialog.new()
 	popup.window_title = "Editing res://%s" % gpm.PACKAGE_FILE
-	popup.anchor_bottom = 1.0
-	popup.anchor_right = 1.0
+	popup.set_anchors_preset(PRESET_WIDE)
 	popup.connect("modal_closed", self, "_delete", [popup])
 	popup.connect("popup_hide", self, "_delete", [popup])
 	
 	var vbox := VBoxContainer.new()
-	vbox.anchor_bottom = 1.0
-	vbox.anchor_right = 1.0
-	vbox.margin_left = 10
-	vbox.margin_right = -10
-	vbox.margin_top = 10
-	vbox.margin_bottom = -10
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.set_anchors_and_margins_preset(PRESET_WIDE)
 	
 	var text_edit := TextEdit.new()
 	text_edit.draw_tabs = true
 	text_edit.draw_spaces = true
+	text_edit.smooth_scrolling = true
+	text_edit.caret_blink = true
+	text_edit.minimap_draw = true
 	text_edit.show_line_numbers = true
 	text_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -88,10 +87,15 @@ func _on_edit_package() -> void:
 	discard_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER | Control.SIZE_EXPAND
 	discard_button.text = "Discard changes"
 	discard_button.connect("pressed", self, "_delete", [popup])
+
+	var spacer := Control.new()
+	spacer.rect_min_size.y = 20
 	
 	save_bar.add_child(discard_button)
 	
 	vbox.add_child(save_bar)
+
+	vbox.add_child(spacer)
 	
 	popup.add_child(vbox)
 	
@@ -104,6 +108,7 @@ func _on_edit_package() -> void:
 		return
 	
 	text_edit.text = file.get_as_text()
+	file.close()
 
 func _delete(node: Node) -> void:
 	node.queue_free()
@@ -135,6 +140,26 @@ func _save_edit_package(node: Node, status_bar: Label, text_edit: TextEdit) -> v
 	node.queue_free()
 
 #endregion
+
+func _on_status() -> void:
+	_log("Getting package status")
+	var res = yield(gpm.dry_run(), "completed")
+	if res.is_ok():
+		var data: Dictionary = res.unwrap()
+		if data.get(gpm.DryRunValues.OK, false):
+			_log("All packages okay, no update required")
+			return
+
+		if not data.get(gpm.DryRunValues.UPDATE, []).empty():
+			_log("Packages to update:")
+			for i in data[gpm.DryRunValues.UPDATE]:
+				_log(i)
+		if not data.get(gpm.DryRunValues.INVALID, []).empty():
+			_log("Invalid packages:")
+			for i in data[gpm.DryRunValues.INVALID]:
+				_log(i)
+	else:
+		_log(res.unwrap_err().to_string())
 
 func _on_update() -> void:
 	_log("Updating all valid packages")

@@ -630,22 +630,24 @@ class Package:
 						return res
 		return PackageResult.ok()
 
-	func download() -> PackageResult:
-		gpm.emit_signal("operation_checkpoint_reached", name)
-		yield(Engine.get_main_loop(), "idle_frame")  # return a GDScriptFunctionState
-		for n in [[required_when, PackageKeys.REQUIRED_WHEN], [optional_when, PackageKeys.OPTIONAL_WHEN]]:
-			if n[0] != null:
+	func should_download() -> bool:
+		if required_when || optional_when:
+			for n in [[required_when, 0], [optional_when, 1]]:
 				var execute_value = n[0].execute([gpm])
 				if typeof(execute_value) == TYPE_BOOL:
 					match n[1]:
-						PackageKeys.REQUIRED_WHEN:
-							if execute_value == false:
-								gpm.emit_signal("message_logged", "Skipping package %s because of condition" % name)
-								return PackageResult.ok()
-						PackageKeys.OPTIONAL_WHEN:
-							if execute_value == true:
-								gpm.emit_signal("message_logged", "Skipping package %s because of condition" % name)
-								return PackageResult.ok()
+						0: # reqwhen
+							return execute_value != false
+						1: # optwhen
+							return execute_value != true
+		return true
+
+	func download() -> PackageResult:
+		gpm.emit_signal("operation_checkpoint_reached", name)
+		yield(Engine.get_main_loop(), "idle_frame")  # return a GDScriptFunctionState
+		if not should_download():
+			gpm.emit_signal("message_logged", "Skipping package %s because of condition" % name)
+			return PackageResult.ok()
 
 		var dir := Directory.new()
 		if dir.dir_exists(self.download_dir):
@@ -754,6 +756,7 @@ class WantedPackages:
 		if res.is_err():
 			return res
 
+		_packages.clear()
 		var file := File.new()
 		var cfg = res.unwrap()
 		for pkg in cfg.get(PackageKeys.PACKAGES, {}).keys():
@@ -827,10 +830,11 @@ class WantedPackages:
 	func lock() -> PackageResult:
 		var lock_file := {}
 		for pkg in self:
-			lock_file[pkg.name] = {
-				LockFileKeys.VERSION: pkg.version,
-				LockFileKeys.INTEGRITY: pkg.integrity,
-			}
+			if pkg.installed:
+				lock_file[pkg.name] = {
+					LockFileKeys.VERSION: pkg.version,
+					LockFileKeys.INTEGRITY: pkg.integrity,
+				}
 		var res = write_config(LOCK_FILE, lock_file)
 		if not res or res.is_err():
 			return res if res else PackageResult.err(Error.Code.GENERIC, "Unable to write configs")
@@ -1054,8 +1058,7 @@ class AdvancedExpression:
 
 class ScriptUtils:
 	static func _clean_text(text: String) -> PackageResult:
-		var whitespace_regex := RegEx.new()
-		whitespace_regex.compile("\\B(\\s+)\\b")
+		var whitespace_regex := Utils.compile_regex("\\B(\\s+)\\b")
 
 		var r := PoolStringArray()
 
@@ -1203,6 +1206,12 @@ const ADDONS_DIR := "res://addons"
 const ADDONS_DIR_FORMAT := ADDONS_DIR + "/%s"
 const DEPENDENCIES_DIR_FORMAT := "res://addons/__gpm_deps/%s/%s"
 
+const DryRunValues := {
+	"OK": "ok",
+	"UPDATE": "packages_to_update",
+	"INVALID": "packages_with_errors"
+}
+
 const CONNECTING_STATUS := [HTTPClient.STATUS_CONNECTING, HTTPClient.STATUS_RESOLVING]
 const SUCCESS_STATUS := [
 	HTTPClient.STATUS_BODY,
@@ -1233,7 +1242,14 @@ const NpmPackageKeys := {
 }
 
 const ValidHooks := {
-	"PRE_UPDATE": "pre_update", "POST_UPDATE": "post_update", "PRE_PURGE": "pre_purge", "POST_PURGE": "post_purge"
+	"PRE_DRY_RUN": "pre_dry_run",
+	"POST_DRY_RUN": "post_dry_run",
+
+	"PRE_UPDATE": "pre_update",
+	"POST_UPDATE": "post_update",
+	
+	"PRE_PURGE": "pre_purge",
+	"POST_PURGE": "post_purge"
 }
 
 var pkg_configs := WantedPackages.new(self)
@@ -1297,6 +1313,38 @@ func update() -> PackageResult:
 
 	return PackageResult.ok()
 
+
+func dry_run() -> PackageResult:
+	var res: PackageResult = yield(pkg_configs.update(), "completed")
+	if res.is_err():
+		return res
+	
+	var pre_dry_run_res = pkg_configs.run_hook(ValidHooks.PRE_DRY_RUN)
+	if typeof(pre_dry_run_res) == TYPE_BOOL and pre_dry_run_res == false:
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.PRE_DRY_RUN)
+		return PackageResult.ok({DryRunValues.OK: true})
+
+	emit_signal("operation_started", "dry run", pkg_configs.size())
+	var failed_packages := FailedPackages.new()
+	var packages_to_update := []
+	for package in pkg_configs:
+		emit_signal("operation_checkpoint_reached", package.name)
+		if not package.should_download():
+			continue
+		packages_to_update.append(package.name)
+	
+	emit_signal("operation_finished")
+
+	var post_dry_run_res = pkg_configs.run_hook(ValidHooks.POST_DRY_RUN)
+	if typeof(post_dry_run_res) == TYPE_BOOL and post_dry_run_res == false:
+		emit_signal("message_logged", "Hook %s returned false" % ValidHooks.POST_DRY_RUN)
+		return PackageResult.ok({DryRunValues.OK: true})
+
+	return PackageResult.ok({
+		DryRunValues.OK: packages_to_update.empty() and failed_packages.failed_package_log.empty(),
+		DryRunValues.UPDATE: packages_to_update,
+		DryRunValues.INVALID: failed_packages.failed_package_log
+	})
 
 ## Remove all packages listed in `godot.lock`
 ##
