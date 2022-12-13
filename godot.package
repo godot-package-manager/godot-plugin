@@ -1,8 +1,6 @@
 {
-    "packages": [
-        {
-            "name": "@bendn/gdcli",
-            "version": "1.2.5"
-        }
-    ]
+    "packages": {
+        "@bendn/gdcli": "1.2.5",
+        "@bendn/test": "2.0.10"
+    }
 }
