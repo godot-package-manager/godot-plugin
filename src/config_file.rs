@@ -12,4 +12,6 @@ impl ConfigFile {
         serde_json::from_str::<ConfigFile>(&std::fs::read_to_string("godot.package").unwrap())
             .unwrap()
     }
+
+    pub fn lock(&self) {}
 }

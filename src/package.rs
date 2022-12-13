@@ -1,21 +1,33 @@
 use crate::npm_manifest::NpmManifest;
+use crate::utils::send_get_request_bin;
+use flate2::read::GzDecoder;
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
-
 use std::fmt;
+use std::fs::remove_dir_all;
+use std::path::Path;
+use tar::Archive;
 
 const REGISTRY: &str = "https://registry.npmjs.org";
 
 pub struct Package {
-    npm_manifest: NpmManifest,
     pub name: String,
     pub version: String,
+    pub meta: PackageMeta,
+}
+
+pub struct PackageMeta {
+    indirect: bool,
+    npm_manifest: NpmManifest,
 }
 
 impl Package {
     pub fn new(name: String, version: String) -> Package {
         Package {
-            npm_manifest: Self::get_manifest(&name, &version),
+            meta: PackageMeta {
+                indirect: false,
+                npm_manifest: Self::get_manifest(&name, &version),
+            },
             name,
             version,
         }
@@ -25,17 +37,40 @@ impl Package {
         format!("P({}@{})", self.name, self.version)
     }
 
-    pub fn get_manifest(name: &String, version: &String) -> NpmManifest {
+    fn get_manifest(name: &String, version: &String) -> NpmManifest {
         #[derive(Debug, Deserialize)]
         struct NpmManifestWrapper {
             pub dist: NpmManifest,
         }
 
-        let resp = crate::utils::send_get_request(format!("{}/{}/{}", REGISTRY, name, version));
+        let resp = crate::utils::send_get_request(&format!("{}/{}/{}", REGISTRY, name, version));
         let npm_manifest = serde_json::from_str::<NpmManifestWrapper>(&resp)
             .unwrap()
             .dist;
         npm_manifest
+    }
+
+    pub fn is_installed(&self) -> bool {
+        Path::new(&self.download_dir()).exists()
+    }
+
+    fn download_dir(&self) -> String {
+        if self.meta.indirect {
+            format!("./addons/__gpm_deps/{}/{}", self.name, self.version)
+        } else {
+            format!("./addons/{}", self.name)
+        }
+    }
+
+    pub fn download(&self) {
+        println!("downloading {self}");
+        if self.is_installed() {
+            remove_dir_all(self.download_dir()).expect("Failed to remove download dir");
+        }
+        let bytes = send_get_request_bin(&self.meta.npm_manifest.tarball);
+        Archive::new(GzDecoder::new(&bytes[..]))
+            .unpack(self.download_dir())
+            .expect("Tarball should unpack");
     }
 }
 
