@@ -1,5 +1,4 @@
 use crate::npm::*;
-use crate::utils::{send_get_request, send_get_request_bin};
 use flate2::read::GzDecoder;
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
@@ -50,17 +49,28 @@ impl Package {
         if self.is_installed() {
             remove_dir_all(self.download_dir()).expect("Failed to remove download dir");
         }
-        let bytes = send_get_request_bin(&self.meta.npm_manifest.tarball);
+
+        let bytes = reqwest::blocking::get(&self.meta.npm_manifest.tarball)
+            .unwrap()
+            .bytes()
+            .unwrap()
+            .to_vec();
+
         Archive::new(GzDecoder::new(&bytes[..]))
             .unpack(self.download_dir())
             .expect("Tarball should unpack");
     }
 
     pub fn get_config_file(&self) -> NpmConfig {
-        NpmConfig::from_json(&send_get_request(&format!(
-            "https://cdn.jsdelivr.net/npm/{}@{}/package.json",
-            self.name, self.version
-        )))
+        NpmConfig::from_json(
+            &reqwest::blocking::get(&format!(
+                "https://cdn.jsdelivr.net/npm/{}@{}/package.json",
+                self.name, self.version,
+            ))
+            .unwrap()
+            .text()
+            .unwrap(),
+        )
     }
 }
 
@@ -71,7 +81,10 @@ impl Package {
             pub dist: NpmManifest,
         }
 
-        let resp = crate::utils::send_get_request(&format!("{}/{}/{}", REGISTRY, name, version));
+        let resp = reqwest::blocking::get(&format!("{}/{}/{}", REGISTRY, name, version))
+            .unwrap()
+            .text()
+            .unwrap();
         let npm_manifest = serde_json::from_str::<NpmManifestWrapper>(&resp)
             .unwrap()
             .dist;

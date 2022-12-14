@@ -1,7 +1,6 @@
 mod config_file;
 mod npm;
 mod package;
-mod utils;
 
 use config_file::ConfigFile;
 use std::fs::create_dir;
