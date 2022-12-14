@@ -38,7 +38,7 @@ impl Package {
     }
 
     pub fn to_string(&self) -> String {
-        format!("P({}@{})", self.name, self.version)
+        format!("{}@{}", self.name, self.version)
     }
 
     pub fn is_installed(&self) -> bool {
