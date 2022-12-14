@@ -1,5 +1,6 @@
 use crate::package::Package;
 use serde::Deserialize;
+use serde_json::Error;
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -20,8 +21,15 @@ struct NpmConfigWrapper {
 }
 
 impl NpmConfig {
-    pub fn from_json(json: &String) -> NpmConfig {
-        Self::from(serde_json::from_str::<NpmConfigWrapper>(json).unwrap())
+    pub fn from_json(json: &String) -> Result<NpmConfig, Error> {
+        let res = serde_json::from_str::<NpmConfigWrapper>(json);
+        match res {
+            Ok(wrap) => Ok(Self::from(wrap)),
+            Err(err) => {
+                let e: Result<NpmConfig, Error> = Result::Err(err);
+                return e; // idk how to inline cast errors
+            }
+        }
     }
 }
 

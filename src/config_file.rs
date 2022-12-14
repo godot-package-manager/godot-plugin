@@ -18,9 +18,9 @@ impl ConfigFile {
     pub fn new() -> Self {
         Self::from(
             serde_json::from_str::<ConfigFileWrapper>(
-                &std::fs::read_to_string("godot.package").unwrap(),
+                &std::fs::read_to_string("godot.package").expect("The config file should exist"),
             )
-            .unwrap(),
+            .expect("The config file should be correct/valid JSON"),
         )
     }
 

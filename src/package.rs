@@ -47,13 +47,13 @@ impl Package {
     pub fn download(&self) {
         println!("Downloading {self}");
         if self.is_installed() {
-            remove_dir_all(self.download_dir()).expect("Failed to remove download dir");
+            remove_dir_all(self.download_dir()).expect("Should be able to remove download dir");
         }
 
         let bytes = reqwest::blocking::get(&self.meta.npm_manifest.tarball)
-            .unwrap()
+            .expect("Tarball download should work")
             .bytes()
-            .unwrap()
+            .expect("Tarball should be bytes")
             .to_vec();
 
         Archive::new(GzDecoder::new(&bytes[..]))
@@ -67,10 +67,11 @@ impl Package {
                 "https://cdn.jsdelivr.net/npm/{}@{}/package.json",
                 self.name, self.version,
             ))
-            .unwrap()
+            .expect("Getting the package config file should not fail")
             .text()
-            .unwrap(),
+            .expect("The package config file should be valid text"),
         )
+        .expect("The package config file should be correct/valid JSON")
     }
 }
 
@@ -82,11 +83,16 @@ impl Package {
         }
 
         let resp = reqwest::blocking::get(&format!("{}/{}/{}", REGISTRY, name, version))
-            .unwrap()
+            .expect("Getting the package manifest file should not fail")
             .text()
-            .unwrap();
+            .expect("The package manifest file should be valid text");
+        if resp == "\"Not Found\"" {
+            panic!("The package {name}@{version} was not found")
+        } else if resp == format!("\"version not found: {version}\"") {
+            panic!("The package {name} exists, but version '{version}' was not found")
+        }
         let npm_manifest = serde_json::from_str::<NpmManifestWrapper>(&resp)
-            .unwrap()
+            .expect("The package manifest file should be correct/valid JSON")
             .dist;
         npm_manifest
     }

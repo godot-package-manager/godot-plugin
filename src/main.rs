@@ -31,7 +31,7 @@ fn update() {
     let args = Args::parse();
     if args.update {
         if !Path::new("./addons/").exists() {
-            create_dir("./addons/").expect("Failed to create ./addons/");
+            create_dir("./addons/").expect("Should be able to create addons folder");
         }
         let cfg = ConfigFile::new();
         println!("Update {} packages", cfg.packages.len());
