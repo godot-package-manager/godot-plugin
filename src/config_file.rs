@@ -1,6 +1,7 @@
 use crate::package::Package;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::write;
 
 #[derive(Debug)]
 pub struct ConfigFile {
@@ -12,6 +13,12 @@ pub struct ConfigFile {
 #[serde(default)]
 struct ConfigFileWrapper {
     packages: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageLock {
+    version: String,
+    integrity: String,
 }
 
 impl ConfigFile {
@@ -37,7 +44,28 @@ impl ConfigFile {
         self.packages.push(p);
     }
 
-    pub fn lock(&self) {}
+    pub fn lock(&self) {
+        let mut lock = HashMap::<String, PackageLock>::new();
+        for p in self.packages.iter() {
+            if p.is_installed() {
+                lock.insert(
+                    p.name.clone(),
+                    PackageLock::new(p.version.clone(), p.meta.npm_manifest.integrity.clone()),
+                );
+            };
+        }
+        let json = serde_json::to_string(&lock).unwrap();
+        write("./godot.lock", json).expect("Writing lock file should work");
+    }
+}
+
+impl PackageLock {
+    fn new(v: String, i: String) -> Self {
+        Self {
+            version: v,
+            integrity: i,
+        }
+    }
 }
 
 impl From<ConfigFileWrapper> for ConfigFile {
