@@ -6,6 +6,7 @@ use crate::package::Package;
 use clap::{ArgGroup, Parser};
 use config_file::ConfigFile;
 use std::fs::{create_dir, remove_dir_all};
+use std::panic;
 use std::path::Path;
 
 #[derive(Parser, Debug)]
@@ -24,6 +25,21 @@ struct Args {
 }
 
 fn main() {
+    panic::set_hook(Box::new(|panic_info| {
+        const RED: &str = "\x1b[1;31m";
+        const RESET: &str = "\x1b[0m";
+        match panic_info.location() {
+            Some(s) => print!("{RED}err{RESET}@{}:{}:{}: ", s.file(), s.line(), s.column()),
+            None => print!("{RED}err{RESET}: "),
+        }
+        match panic_info.payload().downcast_ref::<&str>() {
+            Some(s) => println!("{s}"),
+            None => match panic_info.payload().downcast_ref::<String>() {
+                Some(s) => println!("{s}"),
+                None => println!("unknown"),
+            },
+        }
+    }));
     let args = Args::parse();
     if args.update {
         update();
