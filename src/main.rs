@@ -2,11 +2,11 @@ mod config_file;
 mod npm;
 mod package;
 
+use crate::package::Package;
+use clap::{ArgGroup, Parser};
 use config_file::ConfigFile;
 use std::fs::{create_dir, remove_dir_all};
 use std::path::Path;
-
-use clap::{ArgGroup, Parser};
 
 #[derive(Parser, Debug)]
 #[command(name = "gpm")]
@@ -37,6 +37,10 @@ fn update() {
         create_dir("./addons/").expect("Should be able to create addons folder");
     }
     let cfg = ConfigFile::new();
+    if cfg.packages.is_empty() {
+        println!("No packages to update (modify the \"godot.package\" file to add packages)");
+        return;
+    }
     println!("Update {} packages", cfg.packages.len());
     for package in cfg.packages.iter() {
         package.download();
@@ -46,8 +50,20 @@ fn update() {
 
 fn purge() {
     let cfg = ConfigFile::new();
-    println!("Purge {} packages", cfg.packages.len());
-    for package in cfg.packages.iter() {
+    let packages = cfg
+        .packages
+        .iter()
+        .filter(|p| p.is_installed())
+        .collect::<Vec<&Package>>();
+    if packages.is_empty() {
+        return if cfg.packages.is_empty() {
+            println!("No packages to update (modify the \"godot.package\" file to add packages)")
+        } else {
+            println!("No packages installed(use \"gpm --update\" to install packages)")
+        };
+    }
+    println!("Purge {} packages", packages.len());
+    for package in packages.iter() {
         package.purge();
     }
     if Path::new("./addons/__gpm_deps").exists() {
