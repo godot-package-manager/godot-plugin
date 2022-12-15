@@ -33,6 +33,7 @@ impl ConfigFile {
                 p.meta.dependencies.push(dep);
             }
         }
+        p.meta.dependencies.push(p.clone()); // i depend on myself
         self.packages.push(p);
     }
 
