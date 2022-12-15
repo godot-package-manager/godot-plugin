@@ -3,7 +3,7 @@ mod npm;
 mod package;
 
 use config_file::ConfigFile;
-use std::fs::create_dir;
+use std::fs::{create_dir, remove_dir_all};
 use std::path::Path;
 
 use clap::{ArgGroup, Parser};
@@ -44,4 +44,14 @@ fn update() {
     cfg.lock();
 }
 
-fn purge() {}
+fn purge() {
+    let cfg = ConfigFile::new();
+    println!("Purge {} packages", cfg.packages.len());
+    for package in cfg.packages.iter() {
+        package.purge();
+    }
+    if Path::new("./addons/__gpm_deps").exists() {
+        remove_dir_all("./addons/__gpm_deps").expect("Should be able to remove addons folder");
+    }
+    cfg.lock();
+}

@@ -46,12 +46,15 @@ impl Package {
         Path::new(&self.download_dir()).exists()
     }
 
-    pub fn download(&self) {
-        println!("Downloading {self}");
+    pub fn purge(&self) {
         if self.is_installed() {
             remove_dir_all(self.download_dir()).expect("Should be able to remove download dir");
         }
+    }
 
+    pub fn download(&self) {
+        println!("Downloading {self}");
+        self.purge();
         let bytes = reqwest::blocking::get(&self.meta.npm_manifest.tarball)
             .expect("Tarball download should work")
             .bytes()
