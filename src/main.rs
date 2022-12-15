@@ -24,22 +24,24 @@ struct Args {
 }
 
 fn main() {
-    update();
+    let args = Args::parse();
+    if args.update {
+        update();
+    } else if args.purge {
+        purge();
+    }
 }
 
 fn update() {
-    let args = Args::parse();
-    if args.update {
-        if !Path::new("./addons/").exists() {
-            create_dir("./addons/").expect("Should be able to create addons folder");
-        }
-        let cfg = ConfigFile::new();
-        println!("Update {} packages", cfg.packages.len());
-        for package in cfg.packages.iter() {
-            package.download();
-        }
-        cfg.lock();
-        return;
+    if !Path::new("./addons/").exists() {
+        create_dir("./addons/").expect("Should be able to create addons folder");
     }
-    if args.purge {}
+    let cfg = ConfigFile::new();
+    println!("Update {} packages", cfg.packages.len());
+    for package in cfg.packages.iter() {
+        package.download();
+    }
+    cfg.lock();
 }
+
+fn purge() {}
