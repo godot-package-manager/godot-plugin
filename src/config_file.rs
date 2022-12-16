@@ -28,7 +28,10 @@ impl ConfigFile {
             Ok(w) => cfg = w,
             Err(_) => match serde_yaml::from_str(contents) {
                 Ok(w) => cfg = w,
-                Err(_) => panic!("Failed to parse the config file"),
+                Err(_) => match toml::from_str(contents) {
+                    Ok(w) => cfg = w,
+                    Err(_) => panic!("Failed to parse the config file"),
+                },
             },
         };
         let mut cfg_file = ConfigFile::default();
