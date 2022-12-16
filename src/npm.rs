@@ -31,16 +31,19 @@ impl NpmConfig {
             }
         }
     }
+
+    pub fn new(dependencies: Vec<Package>) -> Self {
+        Self { dependencies }
+    }
 }
 
 impl From<NpmConfigWrapper> for NpmConfig {
     fn from(from: NpmConfigWrapper) -> Self {
-        let mut cfg_file = NpmConfig {
-            dependencies: vec![],
-        };
-        for (package, version) in from.dependencies {
-            cfg_file.dependencies.push(Package::new(package, version));
-        }
-        cfg_file
+        NpmConfig::new(
+            from.dependencies
+                .into_iter()
+                .map(|(package, version)| Package::new(package, version))
+                .collect(),
+        )
     }
 }
