@@ -9,41 +9,32 @@ pub struct NpmManifest {
     pub integrity: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct NpmConfig {
     pub dependencies: Vec<Package>,
 }
 
-#[derive(Debug, Deserialize, Default)]
-#[serde(default)]
-struct NpmConfigWrapper {
-    dependencies: HashMap<String, String>,
-}
-
 impl NpmConfig {
     pub fn from_json(json: &String) -> Result<NpmConfig, Error> {
-        let res = serde_json::from_str::<NpmConfigWrapper>(json);
-        match res {
-            Ok(wrap) => Ok(Self::from(wrap)),
+        #[derive(Debug, Deserialize, Default)]
+        #[serde(default)]
+        struct W {
+            dependencies: HashMap<String, String>,
+        }
+        match serde_json::from_str::<W>(json) {
+            Ok(wrap) => Ok(Self::new(
+                wrap.dependencies
+                    .into_iter()
+                    .map(|(package, version)| Package::new(package, version))
+                    .collect(),
+            )),
             Err(err) => {
-                let e: Result<NpmConfig, Error> = Result::Err(err);
-                return e; // idk how to inline cast errors
+                return Result::<NpmConfig, Error>::Err(err);
             }
         }
     }
 
     pub fn new(dependencies: Vec<Package>) -> Self {
         Self { dependencies }
-    }
-}
-
-impl From<NpmConfigWrapper> for NpmConfig {
-    fn from(from: NpmConfigWrapper) -> Self {
-        NpmConfig::new(
-            from.dependencies
-                .into_iter()
-                .map(|(package, version)| Package::new(package, version))
-                .collect(),
-        )
     }
 }

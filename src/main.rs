@@ -58,9 +58,7 @@ fn update() {
         return;
     }
     println!("Update {} packages", cfg.packages.len());
-    for package in cfg.packages.iter() {
-        package.download();
-    }
+    cfg.packages.iter().for_each(|p| p.download());
     cfg.lock();
 }
 
@@ -79,9 +77,8 @@ fn purge() {
         };
     }
     println!("Purge {} packages", packages.len());
-    for package in packages.iter() {
-        package.purge();
-    }
+    packages.iter().for_each(|p| p.purge());
+
     if Path::new("./addons/__gpm_deps").exists() {
         remove_dir_all("./addons/__gpm_deps").expect("Should be able to remove addons folder");
     }
