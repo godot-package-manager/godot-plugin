@@ -46,10 +46,10 @@ Purge
 Describes packages to be installed along with run hooks. This _should_ be modified
 by the user.
 
-```JSON
+```JSONC
 {
-    "packages": {
-        "package_name": "version_string",
+    "packages": { // comments are supported
+        "package_name": "version_string", // as are trailing commas
     }
 }
 ```

@@ -24,7 +24,7 @@ impl ConfigFile {
         let cfg: W;
         let contents =
             &std::fs::read_to_string("godot.package").expect("The config file should exist");
-        match serde_json::from_str::<W>(contents) {
+        match deser_hjson::from_str::<W>(contents) {
             Ok(w) => cfg = w,
             Err(_) => match serde_yaml::from_str(contents) {
                 Ok(w) => cfg = w,
