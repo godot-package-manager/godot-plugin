@@ -93,155 +93,6 @@ impl Package {
         self.modify();
     }
 
-    pub fn modify(&self) {
-        lazy_static::lazy_static! {
-            static ref SCRIPT_LOAD_R: Regex = Regex::new("(pre)?load\\([\"']([^)]+)['\"]\\)").unwrap();
-            static ref TRES_LOAD_R: Regex = Regex::new("[ext_resource path=\"([^\"]+)\"").unwrap();
-        }
-        // this fn took a hour of battling with the compiler
-        fn modify_load(
-            deps: &Vec<Package>,
-            path: String,
-            relative_allowed: bool,
-            cwd: &String,
-        ) -> String {
-            fn absolute_to_relative(path: &String, cwd: &String) -> String {
-                let mut common = cwd.clone();
-                let mut result = String::from("");
-                while path.trim_start_matches(&common) == path {
-                    common = Path::new(&common)
-                        .parent()
-                        .unwrap()
-                        .as_os_str()
-                        .to_string_lossy()
-                        .to_string();
-                    result = if result.is_empty() {
-                        String::from("..")
-                    } else {
-                        format!("../{result}")
-                    };
-                }
-                let uncommon = path.trim_start_matches(&common);
-                if !(result.is_empty() && uncommon.is_empty()) {
-                    result.push_str(uncommon);
-                } else if !uncommon.is_empty() {
-                    result = uncommon[1..].into();
-                }
-                result
-            }
-            let path_p = Path::new(&path);
-            if path_p.exists() || Path::new(cwd).join(path_p).exists() {
-                if relative_allowed {
-                    let rel = absolute_to_relative(&path, cwd);
-                    if path.len() > rel.len() {
-                        return rel;
-                    }
-                }
-                return format!("res://path");
-            }
-            if let Some(c) = path_p.components().nth(1) {
-                let mut cfg = HashMap::<String, String>::new();
-                for pkg in deps {
-                    cfg.insert(pkg.name.clone(), pkg.download_dir());
-                    if let Some(s) = pkg.name.split_once("/") {
-                        cfg.insert(String::from(s.1), pkg.download_dir()); // unscoped (@ben/cli => cli) (for compat)
-                    }
-                }
-                if let Some(path) = cfg.get(&String::from(c.as_os_str().to_str().unwrap())) {
-                    let p = format!("res://{path}");
-                    if relative_allowed {
-                        let rel = absolute_to_relative(path, cwd);
-                        if p.len() > rel.len() {
-                            return rel;
-                        }
-                    }
-                    return p;
-                }
-            };
-            println!("Could not find path for {}", path);
-            return format!("res://{path}");
-        }
-        fn modify_script_loads(deps: &Vec<Package>, t: &String, cwd: &String) -> String {
-            SCRIPT_LOAD_R
-                .replace_all(&t, |c: &Captures| {
-                    format!(
-                        "{}load('{}')",
-                        if c.get(1).is_some() { "pre" } else { "" },
-                        modify_load(
-                            deps,
-                            String::from(c.get(2).unwrap().as_str().trim_start_matches("res://")),
-                            c.get(1).is_some(),
-                            cwd
-                        )
-                    )
-                })
-                .to_string()
-        }
-        fn modify_tres_loads(deps: &Vec<Package>, t: &String, cwd: &String) -> String {
-            TRES_LOAD_R
-                .replace_all(&t, |c: &Captures| {
-                    format!(
-                        "[ext_resource path=\"{}\"",
-                        modify_load(
-                            deps,
-                            String::from(c.get(1).unwrap().as_str().trim_start_matches("res://")),
-                            false,
-                            cwd
-                        )
-                    )
-                })
-                .to_string()
-        }
-        if self.is_installed() == false {
-            panic!("Attempting to modify a package that is not installed");
-        }
-        if let Err(e) = recurse(self.download_dir(), &self.meta.dependencies) {
-            println!("Modification of {self} yielded error {e}");
-        }
-
-        fn recurse(dir: String, deps: &Vec<Package>) -> io::Result<()> {
-            for entry in read_dir(&dir)? {
-                let p = entry?;
-                if p.path().is_dir() {
-                    recurse(
-                        format!("{dir}/{}", p.file_name().into_string().unwrap()),
-                        deps,
-                    )?;
-                    continue;
-                }
-
-                #[derive(PartialEq, Debug)]
-                enum Type {
-                    TextResource,
-                    GDScript,
-                    None,
-                }
-                if let Some(e) = p.path().extension() {
-                    let t = if e == "tres" || e == "tscn" {
-                        Type::TextResource
-                    } else if e == "gd" || e == "gdscript" {
-                        Type::GDScript
-                    } else {
-                        Type::None
-                    };
-                    if t == Type::None {
-                        continue;
-                    }
-                    let text = read_to_string(p.path())?;
-                    write(
-                        p.path(),
-                        match t {
-                            Type::TextResource => modify_tres_loads(deps, &text, &dir),
-                            Type::GDScript => modify_script_loads(deps, &text, &dir),
-                            Type::None => text, // this should never occur
-                        },
-                    )?;
-                }
-            }
-            Ok(())
-        }
-    }
-
     pub fn get_config_file(&self) -> NpmConfig {
         NpmConfig::from_json(
             &reqwest::blocking::get(&format!(
@@ -283,6 +134,155 @@ impl Package {
             format!("./addons/__gpm_deps/{}/{}", self.name, self.version)
         } else {
             format!("./addons/{}", self.name)
+        }
+    }
+}
+
+// package modification block
+fn absolute_to_relative(path: &String, cwd: &String) -> String {
+    let mut common = cwd.clone();
+    let mut result = String::from("");
+    while path.trim_start_matches(&common) == path {
+        common = Path::new(&common)
+            .parent()
+            .unwrap()
+            .as_os_str()
+            .to_string_lossy()
+            .to_string();
+        result = if result.is_empty() {
+            String::from("..")
+        } else {
+            format!("../{result}")
+        };
+    }
+    let uncommon = path.trim_start_matches(&common);
+    if !(result.is_empty() && uncommon.is_empty()) {
+        result.push_str(uncommon);
+    } else if !uncommon.is_empty() {
+        result = uncommon[1..].into();
+    }
+    result
+}
+
+impl Package {
+    fn modify_script_loads(&self, t: &String, cwd: &String) -> String {
+        lazy_static::lazy_static! {
+            static ref SCRIPT_LOAD_R: Regex = Regex::new("(pre)?load\\([\"']([^)]+)['\"]\\)").unwrap();
+        }
+        SCRIPT_LOAD_R
+            .replace_all(&t, |c: &Captures| {
+                format!(
+                    "{}load('{}')",
+                    if c.get(1).is_some() { "pre" } else { "" },
+                    self.modify_load(
+                        String::from(c.get(2).unwrap().as_str().trim_start_matches("res://")),
+                        c.get(1).is_some(),
+                        cwd
+                    )
+                )
+            })
+            .to_string()
+    }
+    fn modify_tres_loads(&self, t: &String, cwd: &String) -> String {
+        lazy_static::lazy_static! {
+            static ref TRES_LOAD_R: Regex = Regex::new("[ext_resource path=\"([^\"]+)\"").unwrap();
+        }
+        TRES_LOAD_R
+            .replace_all(&t, |c: &Captures| {
+                format!(
+                    "[ext_resource path=\"{}\"",
+                    self.modify_load(
+                        String::from(c.get(1).unwrap().as_str().trim_start_matches("res://")),
+                        false,
+                        cwd
+                    )
+                )
+            })
+            .to_string()
+    }
+
+    fn modify_load(&self, path: String, relative_allowed: bool, cwd: &String) -> String {
+        let path_p = Path::new(&path);
+        if path_p.exists() || Path::new(cwd).join(path_p).exists() {
+            if relative_allowed {
+                let rel = absolute_to_relative(&path, cwd);
+                if path.len() > rel.len() {
+                    return rel;
+                }
+            }
+            return format!("res://{path}");
+        }
+        if let Some(c) = path_p.components().nth(1) {
+            let mut cfg = HashMap::<String, String>::new();
+            for pkg in &self.meta.dependencies {
+                cfg.insert(pkg.name.clone(), pkg.download_dir());
+                if let Some(s) = pkg.name.split_once("/") {
+                    cfg.insert(String::from(s.1), pkg.download_dir()); // unscoped (@ben/cli => cli) (for compat)
+                }
+            }
+            if let Some(path) = cfg.get(&String::from(c.as_os_str().to_str().unwrap())) {
+                let p = format!("res://{path}");
+                if relative_allowed {
+                    let rel = absolute_to_relative(path, cwd);
+                    if p.len() > rel.len() {
+                        return rel;
+                    }
+                }
+                return p;
+            }
+        };
+        println!("Could not find path for {}", path);
+        return format!("res://{path}");
+    }
+
+    fn recursive_modify(&self, dir: String, deps: &Vec<Package>) -> io::Result<()> {
+        for entry in read_dir(&dir)? {
+            let p = entry?;
+            if p.path().is_dir() {
+                self.recursive_modify(
+                    format!("{dir}/{}", p.file_name().into_string().unwrap()),
+                    deps,
+                )?;
+                continue;
+            }
+
+            #[derive(PartialEq, Debug)]
+            enum Type {
+                TextResource,
+                GDScript,
+                None,
+            }
+            if let Some(e) = p.path().extension() {
+                let t = if e == "tres" || e == "tscn" {
+                    Type::TextResource
+                } else if e == "gd" || e == "gdscript" {
+                    Type::GDScript
+                } else {
+                    Type::None
+                };
+                if t == Type::None {
+                    continue;
+                }
+                let text = read_to_string(p.path())?;
+                write(
+                    p.path(),
+                    match t {
+                        Type::TextResource => self.modify_tres_loads(&text, &dir),
+                        Type::GDScript => self.modify_script_loads(&text, &dir),
+                        Type::None => text, // this should never occur
+                    },
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn modify(&self) {
+        if self.is_installed() == false {
+            panic!("Attempting to modify a package that is not installed");
+        }
+        if let Err(e) = self.recursive_modify(self.download_dir(), &self.meta.dependencies) {
+            println!("Modification of {self} yielded error {e}");
         }
     }
 }
