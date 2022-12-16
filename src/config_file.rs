@@ -21,14 +21,20 @@ impl ConfigFile {
         struct W {
             packages: HashMap<String, String>,
         }
+        let cfg: W;
+        let contents =
+            &std::fs::read_to_string("godot.package").expect("The config file should exist");
+        match serde_json::from_str::<W>(contents) {
+            Ok(w) => cfg = w,
+            Err(_) => match serde_yaml::from_str(contents) {
+                Ok(w) => cfg = w,
+                Err(_) => panic!("Failed to parse the config file"),
+            },
+        };
         let mut cfg_file = ConfigFile::default();
-        serde_json::from_str::<W>(
-            &std::fs::read_to_string("godot.package").expect("The config file should exist"),
-        )
-        .expect("The config file should be correct/valid JSON")
-        .packages
-        .into_iter()
-        .for_each(|(name, version)| cfg_file.add(Package::new(name, version)));
+        cfg.packages
+            .into_iter()
+            .for_each(|(name, version)| cfg_file.add(Package::new(name, version)));
         cfg_file
     }
 
