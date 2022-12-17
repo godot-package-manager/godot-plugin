@@ -1,0 +1,46 @@
+name: "release"
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: setup
+        run: |
+          echo "## setting up" > $GITHUB_STEP_SUMMARY
+          rustup set auto-self-update disable
+          rustup toolchain install stable
+
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - name: build
+        id: build
+        run: |
+          version="$(grep "version = " Cargo.toml | head -n 1 | awk -F '"' '{ print $2 }')"
+          [[ $(git tag | grep -c "$version") != 0 ]] && exit 0
+          echo "release=$version" >> $GITHUB_OUTPUT
+          echo "## building" > $GITHUB_STEP_SUMMARY
+          cargo build -r
+          echo "## releasing" > $GITHUB_STEP_SUMMARY
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.build.outputs.release
+
+      - name: release artifacts
+        if: steps.build.outputs.release
+        uses: ncipollo/release-action@v1.10.0
+        with:
+          artifacts: "./target/release/godot-package-manager"
+          tag: ${{ steps.build.outputs.release }}
+          body: "## gpm v${{ steps.build.outputs.release }} :tada:"
