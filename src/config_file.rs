@@ -29,22 +29,13 @@ impl ConfigFile {
                      else if let Ok(w) = toml::from_str(contents) { w }
                      else { panic!("Failed to parse the config file") };
         let mut cfg_file = ConfigFile::default();
-        cfg.packages
+        cfg_file.packages = cfg
+            .packages
             .into_iter()
-            .for_each(|(name, version)| cfg_file.add(Package::new(name, version)));
+            .map(|(name, version)| Package::new(name, version))
+            .collect();
         cfg_file.packages.sort();
         cfg_file
-    }
-
-    fn add(&mut self, mut p: Package) {
-        let cfg = p.get_config_file();
-        cfg.dependencies.into_iter().for_each(|mut dep| {
-            dep.meta.indirect = true;
-            self.add(dep.clone());
-            p.meta.dependencies.push(dep);
-        });
-        p.meta.dependencies.push(p.clone()); // i depend on myself
-        self.packages.push(p);
     }
 
     pub fn lock(&self) {
@@ -52,8 +43,8 @@ impl ConfigFile {
             "./godot.lock",
             serde_json::to_string(
                 &self
-                    .packages
-                    .iter()
+                    .collect()
+                    .into_iter()
                     .filter_map(|p| {
                         p.is_installed()
                             .then_some((p.name.clone(), PackageLock::new(p)))
@@ -64,13 +55,35 @@ impl ConfigFile {
         )
         .expect("Writing lock file should work");
     }
+
+    fn _for_each(pkgs: &[Package], mut cb: impl FnMut(&Package)) {
+        fn inner(pkgs: &[Package], cb: &mut impl FnMut(&Package)) {
+            for p in pkgs {
+                cb(p);
+                if p.has_deps() {
+                    inner(&p.meta.dependencies, cb);
+                }
+            }
+        }
+        inner(pkgs, &mut cb);
+    }
+
+    pub fn for_each(&self, cb: impl FnMut(&Package)) {
+        Self::_for_each(&self.packages, cb)
+    }
+
+    pub fn collect(&self) -> Vec<Package> {
+        let mut pkgs: Vec<Package> = vec![];
+        self.for_each(|p: &Package| pkgs.push(p.clone()));
+        pkgs
+    }
 }
 
 impl PackageLock {
-    fn new(pkg: &Package) -> Self {
+    fn new(pkg: Package) -> Self {
         Self {
-            version: pkg.version.clone(),
-            integrity: pkg.meta.npm_manifest.integrity.clone(),
+            version: pkg.version,
+            integrity: pkg.meta.npm_manifest.integrity,
         }
     }
 }

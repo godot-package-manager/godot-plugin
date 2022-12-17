@@ -5,6 +5,7 @@ mod package;
 use crate::package::Package;
 use clap::Parser;
 use config_file::ConfigFile;
+use std::env::current_dir;
 use std::fs::{create_dir, read_dir, remove_dir};
 use std::io::Result;
 use std::panic;
@@ -24,6 +25,7 @@ enum Actions {
     Update,
     #[clap(short_flag = 'p')]
     Purge,
+    Tree,
 }
 
 fn main() {
@@ -43,6 +45,7 @@ fn main() {
     match args.action {
         Actions::Update => update(),
         Actions::Purge => purge(),
+        Actions::Tree => tree(),
     }
 }
 
@@ -56,7 +59,7 @@ fn update() {
         return;
     }
     println!("Update {} packages", cfg.packages.len());
-    cfg.packages.iter().for_each(|p| p.download());
+    cfg.for_each(|p| p.download());
     cfg.lock();
 }
 
@@ -76,10 +79,10 @@ fn recursive_delete_empty(dir: String) -> Result<()> {
 fn purge() {
     let cfg = ConfigFile::new();
     let packages = cfg
-        .packages
-        .iter()
+        .collect()
+        .into_iter()
         .filter(|p| p.is_installed())
-        .collect::<Vec<&Package>>();
+        .collect::<Vec<Package>>();
     if packages.is_empty() {
         return if cfg.packages.is_empty() {
             println!("No packages to update (modify the \"godot.package\" file to add packages)")
@@ -97,4 +100,30 @@ fn purge() {
         }
     }
     cfg.lock();
+}
+
+fn tree() {
+    println!(
+        "{}",
+        if let Ok(s) = current_dir() {
+            s.to_string_lossy().into()
+        } else {
+            String::from(".")
+        }
+    );
+    iter(ConfigFile::new().packages, "");
+    fn iter(packages: Vec<Package>, prefix: &str) {
+        let mut index = packages.len();
+        for p in packages {
+            let name = p.to_string();
+            index -= 1;
+            println!("{prefix}{} {name}", if index != 0 { "├──" } else { "└──" });
+            if p.has_deps() {
+                iter(
+                    p.meta.dependencies,
+                    &format!("{prefix}{}   ", if index != 0 { '│' } else { ' ' }),
+                );
+            }
+        }
+    }
 }

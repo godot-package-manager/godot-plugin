@@ -37,8 +37,12 @@ impl PartialOrd for PackageMeta {
 }
 
 impl Package {
+    pub fn has_deps(&self) -> bool {
+        !self.meta.dependencies.is_empty()
+    }
+
     pub fn new(name: String, version: String) -> Package {
-        Package {
+        let mut p = Package {
             meta: PackageMeta {
                 indirect: false,
                 npm_manifest: Self::get_manifest(&name, &version),
@@ -46,7 +50,9 @@ impl Package {
             },
             name,
             version,
-        }
+        };
+        p.get_deps();
+        p
     }
 
     pub fn to_string(&self) -> String {
@@ -186,6 +192,15 @@ fn absolute_to_relative(path: &String, cwd: &String) -> String {
 }
 
 impl Package {
+    fn get_deps(&mut self) -> &Vec<Package> {
+        let cfg = self.get_config_file();
+        cfg.dependencies.into_iter().for_each(|mut dep| {
+            dep.meta.indirect = true;
+            self.meta.dependencies.push(dep);
+        });
+        &self.meta.dependencies
+    }
+
     fn modify_script_loads(&self, t: &String, cwd: &String) -> String {
         lazy_static::lazy_static! {
             static ref SCRIPT_LOAD_R: Regex = Regex::new("(pre)?load\\([\"']([^)]+)['\"]\\)").unwrap();
@@ -237,9 +252,13 @@ impl Package {
             let mut cfg = HashMap::<String, String>::new();
             for pkg in &self.meta.dependencies {
                 cfg.insert(pkg.name.clone(), pkg.download_dir());
-                if let Some(s) = pkg.name.split_once("/") {
-                    cfg.insert(String::from(s.1), pkg.download_dir()); // unscoped (@ben/cli => cli) (for compat)
+                if let Some((_, s)) = pkg.name.split_once("/") {
+                    cfg.insert(String::from(s), pkg.download_dir()); // unscoped (@ben/cli => cli) (for compat)
                 }
+            }
+            cfg.insert(self.name.clone(), self.download_dir());
+            if let Some((_, s)) = self.name.split_once("/") {
+                cfg.insert(String::from(s), self.download_dir());
             }
             if let Some(path) = cfg.get(&String::from(c.as_os_str().to_str().unwrap())) {
                 let p = format!("res://{path}");
