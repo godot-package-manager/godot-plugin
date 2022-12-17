@@ -18,7 +18,7 @@ pub struct Package {
     pub meta: PackageMeta,
 }
 
-#[derive(Clone, Eq, PartialEq, Ord)]
+#[derive(Clone, Eq, PartialEq, Ord, Default)]
 pub struct PackageMeta {
     pub npm_manifest: NpmManifest,
     pub dependencies: Vec<Package>,
@@ -43,11 +43,7 @@ impl Package {
 
     pub fn new(name: String, version: String) -> Package {
         let mut p = Package {
-            meta: PackageMeta {
-                indirect: false,
-                npm_manifest: Self::get_manifest(&name, &version),
-                dependencies: vec![],
-            },
+            meta: PackageMeta::default(),
             name,
             version,
         };
@@ -69,9 +65,12 @@ impl Package {
         }
     }
 
-    pub fn download(&self) {
+    pub fn download(&mut self) {
         println!("Downloading {self}");
         self.purge();
+        if self.meta.npm_manifest.tarball.is_empty() {
+            self.get_manifest()
+        };
         let resp = ureq::get(&self.meta.npm_manifest.tarball)
             .call()
             .expect("Tarball download should work");
@@ -120,6 +119,18 @@ impl Package {
     }
 
     pub fn get_config_file(&self) -> NpmConfig {
+        fn get(f: String) -> io::Result<String> {
+            read_to_string(Path::new(&f).join("package.json"))
+        }
+        #[rustfmt::skip]
+        let c: Option<String> = if let Ok(c) = get(self.indirect_download_dir()) { Some(c) }
+                                else if let Ok(c) = get(self.download_dir()) { Some(c) }
+                                else { None };
+        if let Some(c) = c {
+            if let Ok(n) = NpmConfig::from_json(&c) {
+                return n;
+            }
+        }
         NpmConfig::from_json(
             &ureq::get(&format!(
                 "https://cdn.jsdelivr.net/npm/{}@{}/package.json",
@@ -132,36 +143,44 @@ impl Package {
         )
         .expect("The package config file should be correct/valid JSON")
     }
-}
 
-impl Package {
-    fn get_manifest(name: &String, version: &String) -> NpmManifest {
+    pub fn get_manifest(&mut self) {
         #[derive(Debug, Deserialize)]
-        struct NpmManifestWrapper {
+        struct W {
             pub dist: NpmManifest,
         }
-        let resp = ureq::get(&format!("{}/{}/{}", REGISTRY, name, version))
+        let resp = ureq::get(&format!("{}/{}/{}", REGISTRY, self.name, self.version))
             .call()
             .expect("Getting the package manifest file should not fail")
             .into_string()
             .expect("The package manifest file should be valid text");
         if resp == "\"Not Found\"" {
-            panic!("The package {name}@{version} was not found")
-        } else if resp == format!("\"version not found: {version}\"") {
-            panic!("The package {name} exists, but version '{version}' was not found")
+            panic!("Package {}@{} was not found", self.name, self.version)
+        } else if resp == format!("\"version not found: {}\"", self.version) {
+            panic!(
+                "Package {} exists, but version '{}' not found",
+                self.name, self.version
+            )
         }
-        let npm_manifest = serde_json::from_str::<NpmManifestWrapper>(&resp)
+        self.meta.npm_manifest = serde_json::from_str::<W>(&resp)
             .expect("The package manifest file should be correct/valid JSON")
             .dist;
-        npm_manifest
     }
 
     fn download_dir(&self) -> String {
         if self.meta.indirect {
-            format!("./addons/__gpm_deps/{}/{}", self.name, self.version)
+            self.indirect_download_dir()
         } else {
-            format!("./addons/{}", self.name)
+            self.direct_download_dir()
         }
+    }
+
+    fn direct_download_dir(&self) -> String {
+        format!("./addons/{}", self.name)
+    }
+
+    fn indirect_download_dir(&self) -> String {
+        format!("./addons/__gpm_deps/{}/{}", self.name, self.version)
     }
 }
 

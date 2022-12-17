@@ -53,12 +53,16 @@ fn update() {
     if !Path::new("./addons/").exists() {
         create_dir("./addons/").expect("Should be able to create addons folder");
     }
-    let cfg = ConfigFile::new();
+    let mut cfg = ConfigFile::new();
     if cfg.packages.is_empty() {
         println!("No packages to update (modify the \"godot.package\" file to add packages)");
         return;
     }
-    println!("Update {} packages", cfg.packages.len());
+    println!(
+        "Update {} package{}",
+        cfg.packages.len(),
+        if cfg.packages.len() > 1 { "s" } else { "" }
+    );
     cfg.for_each(|p| p.download());
     cfg.lock();
 }
@@ -77,7 +81,7 @@ fn recursive_delete_empty(dir: String) -> Result<()> {
 }
 
 fn purge() {
-    let cfg = ConfigFile::new();
+    let mut cfg = ConfigFile::new();
     let packages = cfg
         .collect()
         .into_iter()
@@ -90,13 +94,17 @@ fn purge() {
             println!("No packages installed(use \"gpm --update\" to install packages)")
         };
     }
-    println!("Purge {} packages", packages.len());
+    println!(
+        "Purge {} package{}",
+        packages.len(),
+        if packages.len() > 1 { "s" } else { "" }
+    );
     packages.into_iter().for_each(|p| p.purge());
 
     // run multiple times because the algorithm goes from top to bottom, stupidly.
     for _ in 0..3 {
         if let Err(e) = recursive_delete_empty("./addons".to_string()) {
-            print!("Unable to remove empty directorys: {e}")
+            println!("Unable to remove empty directorys: {e}")
         }
     }
     cfg.lock();

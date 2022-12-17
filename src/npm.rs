@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::Error;
 use std::collections::HashMap;
 
-#[derive(Debug, Deserialize, Clone, Eq, PartialEq, Ord)]
+#[derive(Debug, Deserialize, Clone, Eq, PartialEq, Ord, Default)]
 pub struct NpmManifest {
     pub tarball: String,
     pub integrity: String,

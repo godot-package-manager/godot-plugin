@@ -38,7 +38,7 @@ impl ConfigFile {
         cfg_file
     }
 
-    pub fn lock(&self) {
+    pub fn lock(&mut self) {
         write(
             "./godot.lock",
             serde_json::to_string(
@@ -56,31 +56,34 @@ impl ConfigFile {
         .expect("Writing lock file should work");
     }
 
-    fn _for_each(pkgs: &[Package], mut cb: impl FnMut(&Package)) {
-        fn inner(pkgs: &[Package], cb: &mut impl FnMut(&Package)) {
+    fn _for_each(pkgs: &mut [Package], mut cb: impl FnMut(&mut Package)) {
+        fn inner(pkgs: &mut [Package], cb: &mut impl FnMut(&mut Package)) {
             for p in pkgs {
                 cb(p);
                 if p.has_deps() {
-                    inner(&p.meta.dependencies, cb);
+                    inner(&mut p.meta.dependencies, cb);
                 }
             }
         }
         inner(pkgs, &mut cb);
     }
 
-    pub fn for_each(&self, cb: impl FnMut(&Package)) {
-        Self::_for_each(&self.packages, cb)
+    pub fn for_each(&mut self, cb: impl FnMut(&mut Package)) {
+        Self::_for_each(&mut self.packages, cb)
     }
 
-    pub fn collect(&self) -> Vec<Package> {
+    pub fn collect(&mut self) -> Vec<Package> {
         let mut pkgs: Vec<Package> = vec![];
-        self.for_each(|p: &Package| pkgs.push(p.clone()));
+        self.for_each(|p| pkgs.push(p.clone()));
         pkgs
     }
 }
 
 impl PackageLock {
-    fn new(pkg: Package) -> Self {
+    fn new(mut pkg: Package) -> Self {
+        if pkg.meta.npm_manifest.integrity.is_empty() {
+            pkg.get_manifest()
+        };
         Self {
             version: pkg.version,
             integrity: pkg.meta.npm_manifest.integrity,
