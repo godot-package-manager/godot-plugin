@@ -261,7 +261,6 @@ impl Package {
             enum Type {
                 TextResource,
                 GDScript,
-                None,
             }
             if let Some(e) = p.path().extension() {
                 let t = if e == "tres" || e == "tscn" {
@@ -269,18 +268,14 @@ impl Package {
                 } else if e == "gd" || e == "gdscript" {
                     Type::GDScript
                 } else {
-                    Type::None
-                };
-                if t == Type::None {
                     continue;
-                }
+                };
                 let text = read_to_string(p.path())?;
                 write(
                     p.path(),
                     match t {
                         Type::TextResource => self.modify_tres_loads(&text, &dir),
                         Type::GDScript => self.modify_script_loads(&text, &dir),
-                        Type::None => text, // this should never occur
                     },
                 )?;
             }

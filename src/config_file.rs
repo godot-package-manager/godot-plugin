@@ -21,19 +21,13 @@ impl ConfigFile {
         struct W {
             packages: HashMap<String, String>,
         }
-        let cfg: W;
         let contents =
             &std::fs::read_to_string("godot.package").expect("The config file should exist");
-        match deser_hjson::from_str::<W>(contents) {
-            Ok(w) => cfg = w,
-            Err(_) => match serde_yaml::from_str(contents) {
-                Ok(w) => cfg = w,
-                Err(_) => match toml::from_str(contents) {
-                    Ok(w) => cfg = w,
-                    Err(_) => panic!("Failed to parse the config file"),
-                },
-            },
-        };
+        #[rustfmt::skip]
+        let cfg: W = if let Ok(w) = deser_hjson::from_str(contents) { w }
+                     else if let Ok(w) = serde_yaml::from_str(contents) { w }
+                     else if let Ok(w) = toml::from_str(contents) { w }
+                     else { panic!("Failed to parse the config file") };
         let mut cfg_file = ConfigFile::default();
         cfg.packages
             .into_iter()
@@ -61,11 +55,8 @@ impl ConfigFile {
                     .packages
                     .iter()
                     .filter_map(|p| {
-                        if p.is_installed() {
-                            Some((p.name.clone(), PackageLock::new(p)))
-                        } else {
-                            None
-                        }
+                        p.is_installed()
+                            .then_some((p.name.clone(), PackageLock::new(p)))
                     })
                     .collect::<HashMap<String, PackageLock>>(),
             )

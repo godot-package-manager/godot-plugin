@@ -26,6 +26,7 @@ struct Args {
 }
 
 fn main() {
+    #[rustfmt::skip]
     panic::set_hook(Box::new(|panic_info| {
         const RED: &str = "\x1b[1;31m";
         const RESET: &str = "\x1b[0m";
@@ -33,13 +34,9 @@ fn main() {
             Some(s) => print!("{RED}err{RESET}@{}:{}:{}: ", s.file(), s.line(), s.column()),
             None => print!("{RED}err{RESET}: "),
         }
-        match panic_info.payload().downcast_ref::<&str>() {
-            Some(s) => println!("{s}"),
-            None => match panic_info.payload().downcast_ref::<String>() {
-                Some(s) => println!("{s}"),
-                None => println!("unknown"),
-            },
-        }
+        if let Some(s) = panic_info.payload().downcast_ref::<&str>() { println!("{s}"); }
+        else if let Some(s) = panic_info.payload().downcast_ref::<String>() { println!("{s}"); }
+        else { println!("unknown"); };
     }));
     let args = Args::parse();
     if args.update {
@@ -67,15 +64,9 @@ fn recursive_delete_empty(dir: String) -> Result<()> {
     if read_dir(&dir)?.next().is_none() {
         return remove_dir(dir);
     }
-    for p in read_dir(&dir)?.into_iter().filter_map(|e| {
-        if let Ok(e) = e {
-            if let Ok(t) = e.file_type() {
-                if t.is_dir() {
-                    return Some(e);
-                };
-            };
-        };
-        None
+    for p in read_dir(&dir)?.filter_map(|e| {
+        let e = e.ok()?;
+        e.file_type().ok()?.is_dir().then_some(e)
     }) {
         recursive_delete_empty(format!("{dir}/{}", p.file_name().to_string_lossy()))?;
     }
