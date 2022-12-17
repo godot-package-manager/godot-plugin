@@ -3,26 +3,27 @@ mod npm;
 mod package;
 
 use crate::package::Package;
-use clap::{ArgGroup, Parser};
+use clap::Parser;
 use config_file::ConfigFile;
 use std::fs::{create_dir, read_dir, remove_dir};
 use std::io::Result;
 use std::panic;
 use std::path::Path;
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[command(name = "gpm")]
 #[command(about = "A package manager for godot", long_about = None)]
-#[clap(group(
-    ArgGroup::new("actions")
-        .required(true)
-        .args(&["update", "purge"]),
-    ))]
 struct Args {
-    #[clap(long, short, action)]
-    update: bool,
-    #[clap(long, short, action)]
-    purge: bool,
+    #[command(subcommand)]
+    action: Actions,
+}
+
+#[derive(clap::Subcommand)]
+enum Actions {
+    #[clap(short_flag = 'u')]
+    Update,
+    #[clap(short_flag = 'p')]
+    Purge,
 }
 
 fn main() {
@@ -39,10 +40,9 @@ fn main() {
         else { println!("unknown"); };
     }));
     let args = Args::parse();
-    if args.update {
-        update();
-    } else if args.purge {
-        purge();
+    match args.action {
+        Actions::Update => update(),
+        Actions::Purge => purge(),
     }
 }
 
