@@ -66,11 +66,20 @@ impl Package {
     pub fn download(&self) {
         println!("Downloading {self}");
         self.purge();
-        let bytes = reqwest::blocking::get(&self.meta.npm_manifest.tarball)
-            .expect("Tarball download should work")
-            .bytes()
-            .expect("Tarball should be bytes")
-            .to_vec();
+        let resp = ureq::get(&self.meta.npm_manifest.tarball)
+            .call()
+            .expect("Tarball download should work");
+
+        let len = resp
+            .header("Content-Length")
+            .expect("Tarball should specify content length")
+            .parse()
+            .expect("Tarball content length should be a number");
+
+        let mut bytes: Vec<u8> = Vec::with_capacity(len);
+        resp.into_reader()
+            .read_to_end(&mut bytes)
+            .expect("Tarball should be bytes");
 
         /// tar xzf archive --strip-components=1 --directory=P
         pub fn unpack<P, R>(mut archive: Archive<R>, dst: P) -> io::Result<()>
@@ -106,12 +115,13 @@ impl Package {
 
     pub fn get_config_file(&self) -> NpmConfig {
         NpmConfig::from_json(
-            &reqwest::blocking::get(&format!(
+            &ureq::get(&format!(
                 "https://cdn.jsdelivr.net/npm/{}@{}/package.json",
                 self.name, self.version,
             ))
+            .call()
             .expect("Getting the package config file should not fail")
-            .text()
+            .into_string()
             .expect("The package config file should be valid text"),
         )
         .expect("The package config file should be correct/valid JSON")
@@ -124,10 +134,10 @@ impl Package {
         struct NpmManifestWrapper {
             pub dist: NpmManifest,
         }
-
-        let resp = reqwest::blocking::get(&format!("{}/{}/{}", REGISTRY, name, version))
+        let resp = ureq::get(&format!("{}/{}/{}", REGISTRY, name, version))
+            .call()
             .expect("Getting the package manifest file should not fail")
-            .text()
+            .into_string()
             .expect("The package manifest file should be valid text");
         if resp == "\"Not Found\"" {
             panic!("The package {name}@{version} was not found")
