@@ -1,4 +1,5 @@
 use crate::npm::*;
+use core::cmp::Ordering;
 use flate2::read::GzDecoder;
 use regex::{Captures, Regex};
 use serde::Deserialize;
@@ -10,18 +11,29 @@ use tar::Archive;
 
 const REGISTRY: &str = "https://registry.npmjs.org";
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Ord)]
 pub struct Package {
     pub name: String,
     pub version: String,
     pub meta: PackageMeta,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Ord)]
 pub struct PackageMeta {
     pub npm_manifest: NpmManifest,
     pub dependencies: Vec<Package>,
     pub indirect: bool,
+}
+
+impl PartialOrd for Package {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        return Some(self.name.cmp(&other.name));
+    }
+}
+impl PartialOrd for PackageMeta {
+    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
+        return Some(Ordering::Equal);
+    }
 }
 
 impl Package {

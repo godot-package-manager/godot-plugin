@@ -1,12 +1,19 @@
 use crate::package::Package;
+use core::cmp::Ordering;
 use serde::Deserialize;
 use serde_json::Error;
 use std::collections::HashMap;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Eq, PartialEq, Ord)]
 pub struct NpmManifest {
     pub tarball: String,
     pub integrity: String,
+}
+
+impl PartialOrd for NpmManifest {
+    fn partial_cmp(&self, _other: &Self) -> Option<std::cmp::Ordering> {
+        Some(Ordering::Equal)
+    }
 }
 
 #[derive(Debug, Default)]

@@ -38,6 +38,7 @@ impl ConfigFile {
         cfg.packages
             .into_iter()
             .for_each(|(name, version)| cfg_file.add(Package::new(name, version)));
+        cfg_file.packages.sort();
         cfg_file
     }
 
