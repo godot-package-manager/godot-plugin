@@ -5,7 +5,8 @@ mod package;
 use crate::package::Package;
 use clap::{ArgGroup, Parser};
 use config_file::ConfigFile;
-use std::fs::{create_dir, remove_dir_all};
+use std::fs::{create_dir, read_dir, remove_dir};
+use std::io::Result;
 use std::panic;
 use std::path::Path;
 
@@ -62,6 +63,25 @@ fn update() {
     cfg.lock();
 }
 
+fn recursive_delete_empty(dir: String) -> Result<()> {
+    if read_dir(&dir)?.next().is_none() {
+        return remove_dir(dir);
+    }
+    for p in read_dir(&dir)?.into_iter().filter_map(|e| {
+        if let Ok(e) = e {
+            if let Ok(t) = e.file_type() {
+                if t.is_dir() {
+                    return Some(e);
+                };
+            };
+        };
+        None
+    }) {
+        recursive_delete_empty(format!("{dir}/{}", p.file_name().to_string_lossy()))?;
+    }
+    Ok(())
+}
+
 fn purge() {
     let cfg = ConfigFile::new();
     let packages = cfg
@@ -77,10 +97,13 @@ fn purge() {
         };
     }
     println!("Purge {} packages", packages.len());
-    packages.iter().for_each(|p| p.purge());
+    packages.into_iter().for_each(|p| p.purge());
 
-    if Path::new("./addons/__gpm_deps").exists() {
-        remove_dir_all("./addons/__gpm_deps").expect("Should be able to remove addons folder");
+    // run multiple times because the algorithm goes from top to bottom, stupidly.
+    for _ in 0..3 {
+        if let Err(e) = recursive_delete_empty("./addons".to_string()) {
+            print!("Unable to remove empty directorys: {e}")
+        }
     }
     cfg.lock();
 }
