@@ -1,29 +1,3 @@
 {
-	"name": "Godot Package Manager",
-	"packages": {
-		"@sometimes_youwin/advanced-expression": "1.0.0",
-		"@sometimes_youwin/verbal-expressions": {
-			"version": "1.0.1",
-			"required_when": {
-				"type": "script_name",
-				"value": "test"
-			}
-		}
-	},
-	"hooks": {
-		"pre_update": {
-			"type": "script",
-			"value": "gpm.print('pre update')"
-		},
-		"pre_dry_run": "gpm.print('dry run is going to run!')",
-		"post_dry_run": "
-			gpm.print('goodbye')
-		",
-	},
-	"scripts": {
-		"test": "
-			gpm.print('hello world')
-			return false
-		"
-	}
+	"packages": {}
 }
