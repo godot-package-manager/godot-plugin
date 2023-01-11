@@ -45,6 +45,9 @@ func _ready() -> void:
 	
 	screens.add_child(npm_search)
 	
+	var sadf = preload("res://addons/godot-package-manager/model/package.gd").new()
+	var asdf = preload("res://addons/godot-package-manager/model/package_list.gd").new()
+	
 	# TODO testing
 #	var body: Dictionary = await gpm.npm.get_manifest(gpm.net, "@sometimes_youwin/gut", "7.3.0")
 #	print("received body")
