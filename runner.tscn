@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bpxcqthiyo3q8"]
+
+[ext_resource type="Script" path="res://runner.gd" id="1_vp6sb"]
+
+[node name="Runner" type="CanvasLayer"]
+script = ExtResource("1_vp6sb")

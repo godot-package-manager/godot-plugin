@@ -1,0 +1,62 @@
+[gd_scene load_steps=2 format=3 uid="uid://camod83u4ii0k"]
+
+[ext_resource type="Script" path="res://addons/godot-package-manager/gui/main.gd" id="1_sk6ui"]
+
+[node name="Main" type="PanelContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("1_sk6ui")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+offset_right = 1152.0
+offset_bottom = 648.0
+
+[node name="QuickControls" type="HFlowContainer" parent="VBoxContainer"]
+layout_mode = 2
+offset_right = 1152.0
+offset_bottom = 31.0
+
+[node name="EditConfig" type="Button" parent="VBoxContainer/QuickControls"]
+unique_name_in_owner = true
+layout_mode = 2
+offset_right = 104.0
+offset_bottom = 31.0
+text = "Open Config"
+
+[node name="PackageStatus" type="Button" parent="VBoxContainer/QuickControls"]
+unique_name_in_owner = true
+layout_mode = 2
+offset_left = 108.0
+offset_right = 233.0
+offset_bottom = 31.0
+text = "Package Status"
+
+[node name="UpdatePackages" type="Button" parent="VBoxContainer/QuickControls"]
+unique_name_in_owner = true
+layout_mode = 2
+offset_left = 237.0
+offset_right = 378.0
+offset_bottom = 31.0
+text = "Update Packages"
+
+[node name="ClearPackages" type="Button" parent="VBoxContainer/QuickControls"]
+unique_name_in_owner = true
+layout_mode = 2
+offset_left = 382.0
+offset_right = 506.0
+offset_bottom = 31.0
+text = "Clear Packages"
+
+[node name="Screens" type="TabContainer" parent="VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+offset_top = 35.0
+offset_right = 1152.0
+offset_bottom = 648.0
+size_flags_vertical = 3

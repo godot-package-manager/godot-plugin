@@ -1,0 +1,37 @@
+[gd_scene load_steps=2 format=3 uid="uid://ctth6u7o5emrg"]
+
+[ext_resource type="Script" path="res://addons/godot-package-manager/gui/npm_search.gd" id="1_4qefr"]
+
+[node name="NpmSearch" type="VBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_4qefr")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+offset_right = 1152.0
+offset_bottom = 31.0
+
+[node name="Label" type="Label" parent="HBoxContainer"]
+offset_top = 2.0
+offset_right = 53.0
+offset_bottom = 28.0
+text = "Search"
+
+[node name="Search" type="LineEdit" parent="HBoxContainer"]
+unique_name_in_owner = true
+offset_left = 57.0
+offset_right = 1152.0
+offset_bottom = 31.0
+size_flags_horizontal = 3
+
+[node name="ScrollContainer" type="ScrollContainer" parent="."]
+offset_top = 35.0
+offset_right = 1152.0
+offset_bottom = 648.0
+size_flags_vertical = 3
+
+[node name="Results" type="VBoxContainer" parent="ScrollContainer"]
+unique_name_in_owner = true
