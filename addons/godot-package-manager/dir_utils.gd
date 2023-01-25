@@ -10,6 +10,12 @@ extends RefCounted
 
 ## Recursively gets all files in a directory. Can take a long time if there are many nested files
 ## in the directory.
+##
+## @param original_path: String - The original path that is being being scanned for files.
+## @param current_path: String - The current path that is being iterated on. Will initially
+## be the same as the original_path.
+##
+## @return Dictionary<String, String|Dictionary> - A recursive list of files in a directory
 static func _get_files_recursive(original_path: String, current_path: String) -> Dictionary:
 	var r := {}
 	

@@ -18,6 +18,7 @@ var npm := preload("res://addons/godot-package-manager/npm.gd").new()
 var net := preload("res://addons/godot-package-manager/net.gd").new()
 var dir_utils := preload("res://addons/godot-package-manager/dir_utils.gd").new()
 var file_utils := preload("res://addons/godot-package-manager/file_utils.gd").new()
+var dict_utils := preload("res://addons/godot-package-manager/dict_utils.gd").new()
 
 #-----------------------------------------------------------------------------#
 # Builtin functions

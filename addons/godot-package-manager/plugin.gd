@@ -3,7 +3,7 @@ extends EditorPlugin
 
 const MainScene := preload("res://addons/godot-package-manager/gui/main.tscn")
 
-const PLUGIN_NAME := "Package Manager"
+const PLUGIN_NAME := "Packages"
 
 var main: Node = null
 
@@ -30,7 +30,7 @@ func _get_plugin_name() -> String:
 	return PLUGIN_NAME
 
 func _get_plugin_icon() -> Texture2D:
-	return get_editor_interface().get_base_control().get_theme_icon("TextureButton", "EditorIcons")
+	return get_editor_interface().get_base_control().get_theme_icon("ResourcePreloader", "EditorIcons")
 
 ## Take any non-tool script and runtime-reload it to work as a tool script.
 func inject_tool(node: Node) -> void:

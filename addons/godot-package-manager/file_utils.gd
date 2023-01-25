@@ -10,6 +10,38 @@ const RES_DIR := "res://"
 # Private functions
 #-----------------------------------------------------------------------------#
 
+static func _fix_script(regex: RegEx, cwd: String, script_content: String) -> String:
+	var offset: int = 0
+	for m in regex.search_all(script_content):
+		# m.strings[(the entire match), (the pre part), (group contents)]
+		var matched_path: String = m.strings[2]
+		
+		# Addon's own resources
+		if FileAccess.file_exists(matched_path) or FileAccess.file_exists(cwd.path_join(matched_path)):
+			if not matched_path.begins_with("."):
+				var rel_path := absolute_to_relative(matched_path, cwd)
+				if matched_path.length() > rel_path.length():
+					return ("preload(%s)" if m.strings[1].begins_with("pre") else "load(%s)") % [
+						rel_path
+					]
+			return ""
+		
+		# Indirect resources
+		matched_path = matched_path.trim_prefix("res://addons")
+		var split := matched_path.split("/")
+		if split.size() < 2:
+			return ""
+		
+		var wanted_addon := split[1]
+		var wanted_file := "/".join(split.slice(2))
+		
+		
+	
+	return ""
+
+static func _fix_tres(regex: RegEx) -> void:
+	pass
+
 #-----------------------------------------------------------------------------#
 # Public functions
 #-----------------------------------------------------------------------------#
@@ -43,18 +75,6 @@ static func save_bytes(path: String, bytes: PackedByteArray) -> int:
 	file.store_buffer(bytes)
 	
 	return OK
-
-## Reads a file into a String.
-##
-## @param path: String - The path to read a file from.
-##
-## @return String - The contents of the file. Will be empty if reading failed.
-static func read_file_to_string(path: String) -> String:
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		return ""
-	
-	return file.get_as_text()
 
 # TODO (Tim Yuen) I'm actually not really able to follow the Godot 3 implementation
 # check if this actually works
@@ -90,6 +110,24 @@ static func absolute_to_relative(path: String, cwd: String, remove_res: bool = t
 			r = floating_path.substr(1)
 	
 	return r
+
+static func fix_script_path(regex: RegEx, file_path: String) -> int:
+	var base_dir := file_path.replace("", "")
+	var offset: int = 0
+	for m in regex.search_all(FileAccess.get_file_as_string(file_path)):
+		# m.strings[(the entire match), (the pre part), (group content)]
+		var matched_path: String = m.strings[2]
+#		if FileAccess.file_exists(matched_path) or FileAccess.file
+	
+	return OK
+
+static func fix_tres_path(regex: RegEx, file_path: String) -> int:
+	var offset: int = 0
+	for m in regex.search_all(FileAccess.get_file_as_string(file_path)):
+		var matched_path: String = m.strings[1]
+		
+	
+	return OK
 
 ## Emulates `tar xzf <file_path> --strip-components=1 -C <output_path>`.
 ##

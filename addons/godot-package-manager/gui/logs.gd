@@ -1,27 +1,30 @@
-extends "res://addons/godot-package-manager/model/package_list.gd"
+extends Window
 
-const GPM := preload("res://addons/godot-package-manager/gpm.gd")
-
-var _gpm: GPM = null
+@onready
+var _logs: TextEdit = %Logs
 
 #-----------------------------------------------------------------------------#
 # Builtin functions
 #-----------------------------------------------------------------------------#
 
-func _init(gpm: GPM) -> void:
-	_gpm = gpm
+func _ready() -> void:
+	popup_centered_ratio(0.5)
+	
+	close_requested.connect(func() -> void:
+		queue_free()
+	)
+	visibility_changed.connect(func() -> void:
+		close_requested.emit()
+	)
 
 #-----------------------------------------------------------------------------#
 # Private functions
 #-----------------------------------------------------------------------------#
 
-
-
 #-----------------------------------------------------------------------------#
 # Public functions
 #-----------------------------------------------------------------------------#
 
-func update() -> int:
-	
-	
-	return OK
+## Adds a log message to be displayed.
+func add_log(text: String) -> void:
+	_logs.text = ("%s\n%s" % [_logs.text, text]).strip_escapes()

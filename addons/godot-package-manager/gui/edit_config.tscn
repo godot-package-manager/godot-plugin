@@ -1,0 +1,45 @@
+[gd_scene load_steps=2 format=3 uid="uid://infesc7g5d18"]
+
+[ext_resource type="Script" path="res://addons/godot-package-manager/gui/edit_config.gd" id="1_3kkvf"]
+
+[node name="EditConfig" type="Window"]
+initial_position = 2
+title = "Edit Config"
+size = Vector2i(1600, 900)
+script = ExtResource("1_3kkvf")
+
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.113725, 0.133333, 0.160784, 1)
+
+[node name="PanelContainer" type="PanelContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TabContainer" type="TabContainer" parent="PanelContainer"]
+layout_mode = 2
+
+[node name="Standard" type="VBoxContainer" parent="PanelContainer/TabContainer"]
+layout_mode = 2
+
+[node name="HFlowContainer" type="HFlowContainer" parent="PanelContainer/TabContainer/Standard"]
+layout_mode = 2
+
+[node name="ScrollContainer" type="ScrollContainer" parent="PanelContainer/TabContainer/Standard"]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer/TabContainer/Standard/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Raw" type="CodeEdit" parent="PanelContainer/TabContainer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2

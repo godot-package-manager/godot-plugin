@@ -1,0 +1,33 @@
+[gd_scene load_steps=3 format=3 uid="uid://bjtne1g0blet5"]
+
+[ext_resource type="Script" path="res://addons/godot-package-manager/gui/logs.gd" id="1_1m5vj"]
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_2lcwm"]
+
+[node name="Logs" type="Window"]
+initial_position = 2
+title = "Logs"
+size = Vector2i(1600, 900)
+script = ExtResource("1_1m5vj")
+
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.113725, 0.133333, 0.160784, 1)
+
+[node name="PanelContainer" type="PanelContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Logs" type="TextEdit" parent="PanelContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_readonly_color = Color(1, 1, 1, 1)
+theme_override_styles/read_only = SubResource("StyleBoxEmpty_2lcwm")
+editable = false

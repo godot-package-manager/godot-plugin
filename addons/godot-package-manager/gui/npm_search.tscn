@@ -11,27 +11,22 @@ grow_vertical = 2
 script = ExtResource("1_4qefr")
 
 [node name="HBoxContainer" type="HBoxContainer" parent="."]
-offset_right = 1152.0
-offset_bottom = 31.0
+layout_mode = 2
 
 [node name="Label" type="Label" parent="HBoxContainer"]
-offset_top = 2.0
-offset_right = 53.0
-offset_bottom = 28.0
+layout_mode = 2
 text = "Search"
 
 [node name="Search" type="LineEdit" parent="HBoxContainer"]
 unique_name_in_owner = true
-offset_left = 57.0
-offset_right = 1152.0
-offset_bottom = 31.0
+layout_mode = 2
 size_flags_horizontal = 3
 
 [node name="ScrollContainer" type="ScrollContainer" parent="."]
-offset_top = 35.0
-offset_right = 1152.0
-offset_bottom = 648.0
+layout_mode = 2
 size_flags_vertical = 3
 
 [node name="Results" type="VBoxContainer" parent="ScrollContainer"]
 unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
