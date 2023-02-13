@@ -41,7 +41,7 @@ func _search_npm(text: String) -> void:
 		return
 	_last_search_text = text
 	
-	var results: Array[Dictionary] = await gpm.npm.search(gpm.net, text)
+	var results: Array[Dictionary] = await gpm.npm.search(text)
 	
 	for i in results:
 		var data: Dictionary = i.get("package", {})

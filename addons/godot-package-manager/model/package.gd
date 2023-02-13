@@ -8,9 +8,8 @@ var download_dir := ""
 var is_installed := false
 var is_indirect := false
 
+## Array[Package]. Flattened dependency structure.
 var dependencies := []
-
-var npm_manifest := {}
 
 #-----------------------------------------------------------------------------#
 # Builtin functions

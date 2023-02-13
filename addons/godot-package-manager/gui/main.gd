@@ -84,9 +84,21 @@ func _ready() -> void:
 	
 	# TODO testing
 #	var body: Dictionary = await gpm.npm.get_manifests(gpm.net, "@sometimes_youwin/gut")
-	var body: Array = await gpm.npm.search(gpm.net, "verbal expressions")
-	print("received body")
-	print(body)
+#	var body: Array = await gpm.npm.search("verbal expressions")
+#	print(JSON.stringify(body, "\t"))
+	
+#	var body: Dictionary = await gpm.npm.get_manifest("@sometimes_youwin/verbal-expressions", "1.0.1")
+#	print(JSON.stringify(body, "\t"))
+	
+	var config := gpm.Config.new()
+	await config.parse({
+		"@sometimes_youwin/verbal-expressions": "1.0.1"
+	})
+	
+	print("finished parsing")
+
+	for i in config:
+		print(i)
 
 #	var regex := RegEx.create_from_string("(pre)?load\\(\\\"([^)]+)\\\"\\)")
 #	for m in regex.search_all("""

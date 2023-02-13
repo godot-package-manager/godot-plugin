@@ -59,5 +59,4 @@ layout_mode = 2
 focus_mode = 2
 bbcode_enabled = true
 text = "Nothing, this is probably a bug!"
-fit_content_height = true
 selection_enabled = true

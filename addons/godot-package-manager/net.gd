@@ -26,7 +26,7 @@ const HEADERS := [
 static func _create_client(host: String) -> HTTPClient:
 	var client := HTTPClient.new()
 	
-	var err := client.connect_to_host(host, 443, true, true)
+	var err := client.connect_to_host(host, 443, TLSOptions.client())
 	if err != OK:
 		printerr("Unable to connect to host %s" % host)
 		return null

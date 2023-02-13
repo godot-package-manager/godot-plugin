@@ -34,8 +34,8 @@ const SEARCH_FORMAT := "/-/v1/search?text=%s"
 ## @param package_name: String - The package to search for. (e.g. @my_namespace/my_package)
 ##
 ## @return Dictionary - The packument.
-static func get_package_metadata(http: Net, package_name: String) -> Dictionary:
-	var response: Dictionary = await http.get_request(
+static func get_package_metadata(package_name: String) -> Dictionary:
+	var response: Dictionary = await Net.get_request(
 		NPM, GET_FORMAT % package_name, [200]
 	)
 	
@@ -48,8 +48,8 @@ static func get_package_metadata(http: Net, package_name: String) -> Dictionary:
 ## @param version: String - The package version. (e.g. 1.0.0)
 ##
 ## @return Dictionary - The manifest for the package. Will be empty if there was an error.
-static func get_manifest(http: Net, package_name: String, version: String) -> Dictionary:
-	var response: Dictionary = await http.get_request(
+static func get_manifest(package_name: String, version: String) -> Dictionary:
+	var response: Dictionary = await Net.get_request(
 		NPM, GET_WITH_VERSION_FORMAT % [package_name, version], [200])
 	
 	return response
@@ -60,8 +60,8 @@ static func get_manifest(http: Net, package_name: String, version: String) -> Di
 ## @param search_term: String - The search term that's automatically uri encoded.
 ##
 ## @return Array[Dictionary] - List of Dictionaries containing package metadata.
-static func search(http: Net, search_term: String) -> Array[Dictionary]:
-	var response: Dictionary = await http.get_request(
+static func search(search_term: String) -> Array:
+	var response: Dictionary = await Net.get_request(
 		NPM, SEARCH_FORMAT % search_term.uri_encode(), [200]
 	)
 	
