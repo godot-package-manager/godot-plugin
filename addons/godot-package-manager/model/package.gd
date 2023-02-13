@@ -76,6 +76,7 @@ func normalize(gpm: RefCounted) -> int:
 	
 	return OK
 
-## 
+## Get the name without the scope. Necessary for creating directories since the scope
+## can contain an "@" character.
 func unscoped_name() -> String:
 	return name.get_file()

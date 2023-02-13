@@ -89,23 +89,47 @@ static func _response_body_to_dict(body: PackedByteArray) -> Dictionary:
 #-----------------------------------------------------------------------------#
 
 ## Send an HTTP GET request to the given host + path.
-static func get_request(host: String, path: String, valid_response_codes: Array[int]) -> Dictionary:
+##
+## @param host: String - The host name.
+## @param path: String - The url path.
+## @param valid_response_codes: Array[int] - Valid response codes. Any other code will
+## be assumed to be an error.
+##
+## @return PackedByteArray - The response as bytes.
+static func get_request(
+	host: String,
+	path: String,
+	valid_response_codes: Array[int]
+) -> PackedByteArray:
 	var client: HTTPClient = await _create_client(host)
 	if client == null:
 		printerr("Unable to create client for get request")
-		return {}
+		return PackedByteArray()
 	
 	var err := client.request(HTTPClient.METHOD_GET, "/%s" % path, HEADERS)
 	if err != OK:
 		printerr("Unable to send GET request to %s/%s" % [host, path])
-		return {}
+		return PackedByteArray()
 	
 	err = await _wait_for_response(client, valid_response_codes)
 	if err != OK:
 		printerr("Bad response for GET request to %s/%s" % [host, path])
-		return {}
+		return PackedByteArray()
 	
 	var body: PackedByteArray = await _read_response_body(client)
+	
+	return body
+
+## Send an HTTP GET request to the given host + path and then parsed to a Dictionary.
+##
+## @param host: String - The host name.
+## @param path: String - The url path.
+## @param valid_response_codes: Array[int] - Valid response codes. Any other code will
+## be assumed to be an error.
+##
+## @return Dictionary - The response parsed into a Dictionary.
+static func get_request_json(host: String, path: String, valid_response_codes: Array[int]) -> Dictionary:
+	var body: PackedByteArray = await get_request(host, path, valid_response_codes)
 	
 	return _response_body_to_dict(body)
 

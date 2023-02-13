@@ -35,7 +35,7 @@ const SEARCH_FORMAT := "/-/v1/search?text=%s"
 ##
 ## @return Dictionary - The packument.
 static func get_package_metadata(package_name: String) -> Dictionary:
-	var response: Dictionary = await Net.get_request(
+	var response: Dictionary = await Net.get_request_json(
 		NPM, GET_FORMAT % package_name, [200]
 	)
 	
@@ -49,10 +49,18 @@ static func get_package_metadata(package_name: String) -> Dictionary:
 ##
 ## @return Dictionary - The manifest for the package. Will be empty if there was an error.
 static func get_manifest(package_name: String, version: String) -> Dictionary:
-	var response: Dictionary = await Net.get_request(
+	var response: Dictionary = await Net.get_request_json(
 		NPM, GET_WITH_VERSION_FORMAT % [package_name, version], [200])
 	
 	return response
+
+static func get_tarball_url(package_name: String, version: String) -> String:
+	var response := await get_manifest(package_name, version)
+	if response.is_empty():
+		printerr("get_tarball_url response was empty")
+		return ""
+	
+	return response.get("dist", {}).get("tarball", "")
 
 ## Search NPM for a given package.
 ##
@@ -61,7 +69,7 @@ static func get_manifest(package_name: String, version: String) -> Dictionary:
 ##
 ## @return Array[Dictionary] - List of Dictionaries containing package metadata.
 static func search(search_term: String) -> Array:
-	var response: Dictionary = await Net.get_request(
+	var response: Dictionary = await Net.get_request_json(
 		NPM, SEARCH_FORMAT % search_term.uri_encode(), [200]
 	)
 	

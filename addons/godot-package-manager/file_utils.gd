@@ -35,7 +35,7 @@ static func _fix_script(regex: RegEx, cwd: String, script_content: String) -> St
 		var wanted_addon := split[1]
 		var wanted_file := "/".join(split.slice(2))
 		
-		
+		# TODO
 	
 	return ""
 
@@ -118,6 +118,8 @@ static func fix_script_path(regex: RegEx, file_path: String) -> int:
 		# m.strings[(the entire match), (the pre part), (group content)]
 		var matched_path: String = m.strings[2]
 #		if FileAccess.file_exists(matched_path) or FileAccess.file
+
+	# TODO
 	
 	return OK
 
@@ -125,7 +127,8 @@ static func fix_tres_path(regex: RegEx, file_path: String) -> int:
 	var offset: int = 0
 	for m in regex.search_all(FileAccess.get_file_as_string(file_path)):
 		var matched_path: String = m.strings[1]
-		
+	
+	# TODO
 	
 	return OK
 
