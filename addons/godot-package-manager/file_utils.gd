@@ -138,7 +138,7 @@ static func fix_tres_path(regex: RegEx, file_path: String) -> int:
 ## @param output_path: String - The res:// path to extract to.
 ##
 ## @return int - The error code.
-static func xzf(file_path: String, output_path: String) -> int:
+static func xzf_native(file_path: String, output_path: String) -> int:
 	var output := []
 	var exit_code := OS.execute(
 		"tar",
@@ -154,5 +154,83 @@ static func xzf(file_path: String, output_path: String) -> int:
 	
 	if exit_code != 0:
 		return ERR_BUG
+	
+	return OK
+
+# TODO doesn't work at all
+## Decompress a `.tar.gz` file.
+## https://github.com/godotengine/godot-proposals/issues/6089#issuecomment-1417950525
+##
+## @param file_path: String - The path to the `.tar.gz` file.
+## @param output_path: String - The path where the files should be extracted to.
+##
+## @return int - The error code.
+static func xzf(file_path: String, output_path: String) -> int:
+	var file := FileAccess.open(file_path, FileAccess.READ)
+	if file == null:
+		return FileAccess.get_open_error()
+	
+	var buffer := file.get_buffer(file.get_length())
+	file.close()
+	
+	buffer = buffer.decompress_dynamic(-1, FileAccess.COMPRESSION_GZIP)
+	if buffer.size() < 1:
+		return ERR_INVALID_DATA
+	
+	var octal_number_get := func(data: PackedByteArray) -> int:
+		var r: int = 0
+		
+		for i in data.size():
+			if data[i] == 0:
+				return r
+			if data[i] < 48 or data[i] > 55:
+				return -1
+			
+			r *= 8
+			r += data[i] - 48
+		
+		return 0
+	
+	var trim_null := func(data: PackedByteArray) -> PackedByteArray:
+		var end := data.size()
+		while end > 0 and data[end - 1] == 0:
+			end -= 1
+		
+		return data.slice(0, end)
+	
+	var check_all_zeros := func(data: PackedByteArray) -> bool:
+		for i in data.size():
+			if data[i] != 0:
+				return false
+		return true
+	
+	var entries: Array[Dictionary] = []
+	
+	var offset: int = 0
+	while offset + 512 < buffer.size():
+		var file_size: int = octal_number_get.call(buffer.slice(offset + 124))
+		if file_size < 0 or offset + 512 + file_size > buffer.size():
+			break
+		if file_size == 0:
+			# Check for two empty records marking the end of the archive
+			# This is a relatively expensive operation for GDScript but will generally happen
+			# only once in the whole archive
+			if check_all_zeros.call(buffer.slice(offset, offset + 512)):
+				if (
+					offset + 1024 > buffer.size() or
+					not check_all_zeros.call(buffer.slice(offset + 512, offset + 1024))
+				):
+					offset += 512
+					continue
+				break
+		
+		entries.push_back({
+			"name": trim_null.call(buffer.slice(offset, offset + 100)).get_string_from_utf8(),
+			"contents": buffer.slice(offset + 512, offset + 512 + file_size)
+		})
+		
+		offset += 512 + file_size + (511 - ((file_size + 511) & 0x1FF))
+	
+	print(JSON.stringify(entries, "\t"))
 	
 	return OK

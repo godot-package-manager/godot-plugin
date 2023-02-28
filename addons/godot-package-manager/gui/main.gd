@@ -99,7 +99,6 @@ func _ready() -> void:
 #
 #	for i in config:
 #		print(i)
-	
 	var data := await gpm.update_packages()
 
 #	var regex := RegEx.create_from_string("(pre)?load\\(\\\"([^)]+)\\\"\\)")

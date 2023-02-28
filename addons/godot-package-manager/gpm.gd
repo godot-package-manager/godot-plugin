@@ -103,6 +103,12 @@ func status() -> Dictionary:
 	
 	return r
 
+## Update a single package. If the package does not exist, a folder will be created for it.
+## If the distribution hash matches the lockfile hash, then nothing will be changed on disk.
+##
+## @param package: Package - The package to update.
+##
+## @return int - The error code.
 func update_package(package: Package) -> int:
 	operation_started.emit("Update package %s@%s" % [package.name, package.version])
 	
@@ -111,6 +117,8 @@ func update_package(package: Package) -> int:
 		message_logged.emit("Could not get tarball url for %s@%s" % [
 			package.name, package.version])
 		return ERR_DOES_NOT_EXIST
+	
+	# TODO check compare tarball hash against lockfile
 	
 	var host_path_pair := _get_host_path_pair(response)
 	
@@ -128,14 +136,19 @@ func update_package(package: Package) -> int:
 	
 	var tar_path := "%s/%s.tar.gz" % [package_dir, package.unscoped_name()]
 	
-	err = file_utils.save_bytes(package_dir, bytes)
+	err = file_utils.save_bytes(tar_path, bytes)
 	if err != OK:
-		message_logged.emit("Cannot save bytes at %s for %s" % [package_dir, package.name])
+		message_logged.emit("Cannot save bytes at %s for %s" % [tar_path, package.name])
 		return err
 	
-	err = file_utils.xzf(tar_path, package_dir)
+	err = file_utils.xzf_native(tar_path, package_dir)
 	if err != OK:
 		message_logged.emit("Cannot untar package at %s for %s" % [tar_path, package.name])
+		return err
+	
+	err = DirAccess.remove_absolute(tar_path)
+	if err != OK:
+		message_logged.emit("Cannot remove tar file at %s for %s" % [tar_path, package.name])
 		return err
 	
 	return OK
