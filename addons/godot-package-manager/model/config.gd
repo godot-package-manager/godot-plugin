@@ -42,13 +42,15 @@ func _should_continue() -> bool:
 # Public functions
 #-----------------------------------------------------------------------------#
 
-## Parses the package file and finds all indirect dependencies.
+## Parses the package file and finds all indirect dependencies. [br]
 ##
-## @param dict: Dictionary - List of dependencies from either a package file or manifest.
-## @param direct_dep: Package - The direct dependency. Will be null if this package is
-## the direct depedency.
+## Params: [br]
+## [param dict]: [Dictionary] - List of dependencies from either a package file or manifest. [br]
+## [param direct_dep]: [constant Package] - The direct dependency. Will be null if this package is
+## the direct depedency. [br]
 ##
-## @return int - The error code.
+## Returns: [br]
+## [param int] - The error code.
 func parse(dict: Dictionary, direct_dep: Package = null) -> int:
 	for package_name in dict.keys():
 		var package_version: String = dict[package_name]
@@ -76,11 +78,13 @@ func parse(dict: Dictionary, direct_dep: Package = null) -> int:
 	
 	return OK
 
-## Add a package as a direct dependency. Does not allow duplicates.
+## Add a package as a direct dependency. Does not allow duplicates. [br]
 ##
-## @param package: Package - The package to add.
+## Params: [br]
+## [param package]: [constant Package] - The package to add.
 ##
-## @return int - The error code.
+## Returns: [br]
+## [param int] - The error code.
 func add(package: Package) -> int:
 	if packages.has(package.name):
 		return ERR_ALREADY_EXISTS

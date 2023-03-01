@@ -1,5 +1,7 @@
 extends RefCounted
 
+## Network utils for Godot Package Manager.
+
 const CONNECTING_STATUS := [
 	HTTPClient.STATUS_CONNECTING,
 	HTTPClient.STATUS_RESOLVING
@@ -9,6 +11,7 @@ const SUCCESS_STATUS := [
 	HTTPClient.STATUS_CONNECTED,
 ]
 
+## Default headers to use when sending requests.
 const HEADERS := [
 	"User-Agent: GodotPackageManager/1.0 (godot-package-manager on GitHub)",
 	"Accept: */*"
@@ -22,7 +25,14 @@ const HEADERS := [
 # Private functions
 #-----------------------------------------------------------------------------#
 
-## Create an HTTPClient that is connected to a given host.
+## Create an [HTTPClient] that is connected to a given host. [br]
+##
+## Params: [br]
+## [param host]: [String] - The host to create an [HTTPClient] for. [br]
+##
+## Returns: [br]
+## [param HTTPClient] - The new [HTTPClient] or [code]null[/code] if the client was not
+## able to connect.
 static func _create_client(host: String) -> HTTPClient:
 	var client := HTTPClient.new()
 	
@@ -41,7 +51,14 @@ static func _create_client(host: String) -> HTTPClient:
 	
 	return client
 
-## Wait for a response after sending a request.
+## Wait for a response after sending a request. [br]
+##
+## Params: [br]
+## [param client]: [HTTPClient] - The client to wait on. [br]
+## [param valid_response_codes]: [Array] - Valid response codes to receive. [br]
+##
+## Returns: [br]
+## [param int] - The error code.
 static func _wait_for_response(client: HTTPClient, valid_response_codes: Array[int]) -> int:
 	while client.get_status() == HTTPClient.STATUS_REQUESTING:
 		client.poll()
@@ -55,7 +72,13 @@ static func _wait_for_response(client: HTTPClient, valid_response_codes: Array[i
 	
 	return OK
 
-## Read the response body into a PackedByteArray.
+## Read the response body into a [PackedByteArray]. [br]
+##
+## Params: [br]
+## [param client]: [HTTPClient] - The client to read a response body from. [br]
+##
+## Returns: [br]
+## [param PackedByteArray] - The parsed response body.
 static func _read_response_body(client: HTTPClient) -> PackedByteArray:
 	var body := PackedByteArray()
 	
@@ -70,7 +93,13 @@ static func _read_response_body(client: HTTPClient) -> PackedByteArray:
 	
 	return body
 
-## Convert a response body into a Dictionary.
+## Convert a response body into a [Dictionary]. [br]
+##
+## Params: [br]
+## [param body]: [PackedByteArray] - The response body bytes. [br]
+##
+## Returns: [br]
+## [param Dictionary] - The response body parsed into a [Dictionary].
 static func _response_body_to_dict(body: PackedByteArray) -> Dictionary:
 	var text := body.get_string_from_utf8()
 	
@@ -88,14 +117,16 @@ static func _response_body_to_dict(body: PackedByteArray) -> Dictionary:
 # Public functions
 #-----------------------------------------------------------------------------#
 
-## Send an HTTP GET request to the given host + path.
-##
-## @param host: String - The host name.
-## @param path: String - The url path.
-## @param valid_response_codes: Array[int] - Valid response codes. Any other code will
-## be assumed to be an error.
-##
-## @return PackedByteArray - The response as bytes.
+## Send an HTTP GET request to the given host + path. [br]
+## 
+## Params: [br]
+## [param host]: String - The host name. [br]
+## [param path]: String - The url path. [br]
+## [param valid_response_codes]: [Array] - Valid response codes. Any other code will
+## be assumed to be an error. [br]
+## 
+## Returns: [br]
+## [param PackedByteArray] - The response as bytes.
 static func get_request(
 	host: String,
 	path: String,
@@ -120,20 +151,32 @@ static func get_request(
 	
 	return body
 
-## Send an HTTP GET request to the given host + path and then parsed to a Dictionary.
+## Send an HTTP GET request to the given host + path and then parsed to a Dictionary. [br]
+## 
+## Params: [br]
+## [param host]: String - The host name. [br]
+## [param path]: String - The url path. [br]
+## [param valid_response_codes]: [Array] - Valid response codes. Any other code will be assumed
+## to be an error. [br]
 ##
-## @param host: String - The host name.
-## @param path: String - The url path.
-## @param valid_response_codes: Array[int] - Valid response codes. Any other code will
-## be assumed to be an error.
-##
-## @return Dictionary - The response parsed into a Dictionary.
+## Returns: [br]
+## [param Dictionary] - The response parsed into a [Dictionary].
 static func get_request_json(host: String, path: String, valid_response_codes: Array[int]) -> Dictionary:
 	var body: PackedByteArray = await get_request(host, path, valid_response_codes)
 	
 	return _response_body_to_dict(body)
 
-## Send an HTTP POST request to the given host + path.
+## Send an HTTP POST request to the given host + path. [br]
+##
+## Params: [br]
+## [param host]: String - The host name. [br]
+## [param path]: String - The url path. [br]
+## [param request_body]: [Dictionary] - The request body to send. [br]
+## [param valid_response_codes]: [Array] - Valid response codes. Any other code will be assumed
+## to be an error. [br]
+##
+## Returns: [br]
+## [param Dictionary] - The response parsed into a [Dictionary].
 static func post_request(
 	host: String,
 	path: String,

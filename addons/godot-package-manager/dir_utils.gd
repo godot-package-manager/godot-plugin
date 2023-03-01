@@ -1,5 +1,7 @@
 extends RefCounted
 
+## Directory utilities for Godot Package Manager.
+
 #-----------------------------------------------------------------------------#
 # Builtin functions
 #-----------------------------------------------------------------------------#
@@ -9,13 +11,15 @@ extends RefCounted
 #-----------------------------------------------------------------------------#
 
 ## Recursively gets all files in a directory. Can take a long time if there are many nested files
-## in the directory.
+## in the directory. [br]
 ##
-## @param original_path: String - The original path that is being being scanned for files.
-## @param current_path: String - The current path that is being iterated on. Will initially
-## be the same as the original_path.
+## Params: [br]
+## [param original_path]: [String] - The original path that is being being scanned for files. [br]
+## [param current_path]: [String] - The current path that is being iterated on. Will initially
+## be the same as the original_path. [br]
 ##
-## @return Dictionary<String, String|Dictionary> - A recursive list of files in a directory
+## Returns: [br]
+## [param Dictionary] - A recursive list of files in a directory.
 static func _get_files_recursive(original_path: String, current_path: String) -> Dictionary:
 	var r := {}
 	
@@ -44,28 +48,36 @@ static func _get_files_recursive(original_path: String, current_path: String) ->
 #-----------------------------------------------------------------------------#
 
 ## Wrapper around [code]_get_files_recursive[/code]. Needed since the recursive function
-## is always initially passed the same path twice.
+## is always initially passed the same path twice. [br]
 ##
-## @param path: String - The path to search.
+## Params: [br]
+## [param path]: [String] - The path to search. [br]
 ##
-## @return Dictionary<String, String | Dictionary> - Keys are relative paths, values are either
-## file names or Dictionaries (indicating an inner directory).
+## Returns: [br]
+## [param Dictionary] - Keys are relative paths, values are either file names or
+## [Dictionary]s (indicating an inner directory).
 static func get_files_recursive(path: String) -> Dictionary:
+	path = ProjectSettings.globalize_path(path)
+	
 	return _get_files_recursive(path, path)
 
-## Removes a directory recursively.
+## Removes a directory recursively. [br]
 ##
-## @param path: String - The path to remove.
-## @param remove_base_dir: bool - Whether to remove the directory at the given path.
-## @param file_dict: Dictionary - The result of [code]get_files_recursive[/code], only useful
-## when removing inner directories.
+## Params: [br]
+## [param path]: [String] - The path to remove. [br]
+## [param remove_base_dir]: [bool] - Whether to remove the directory at the given path. [br]
+## [param file_dict]: [Dictionary] - The result of [code]get_files_recursive[/code], only useful
+## when removing inner directories. [br]
 ##
-## @return int - The error code.
+## Returns: [br]
+## [param int] - The error code.
 static func remove_dir_recursive(
 	path: String,
 	remove_base_dir: bool = true,
 	file_dict: Dictionary = {}
 ) -> int:
+	path = ProjectSettings.globalize_path(path)
+	
 	var files := get_files_recursive(path) if file_dict.is_empty() else file_dict
 	
 	for key in files.keys():

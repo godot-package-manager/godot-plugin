@@ -1,6 +1,12 @@
 extends RefCounted
 
-const RES_DIR := "res://"
+## File utilities for Godot Package Manager.
+
+const Package := preload("res://addons/godot-package-manager/model/package.gd")
+
+#const RES_DIR := "res://"
+# TODO move this into a constant file?
+const DEPENDENCIES_DIR := "res://addons/__gpm_deps/"
 
 #-----------------------------------------------------------------------------#
 # Builtin functions
@@ -10,48 +16,49 @@ const RES_DIR := "res://"
 # Private functions
 #-----------------------------------------------------------------------------#
 
-static func _fix_script(regex: RegEx, cwd: String, script_content: String) -> String:
-	var offset: int = 0
-	for m in regex.search_all(script_content):
-		# m.strings[(the entire match), (the pre part), (group contents)]
-		var matched_path: String = m.strings[2]
-		
-		# Addon's own resources
-		if FileAccess.file_exists(matched_path) or FileAccess.file_exists(cwd.path_join(matched_path)):
-			if not matched_path.begins_with("."):
-				var rel_path := absolute_to_relative(matched_path, cwd)
-				if matched_path.length() > rel_path.length():
-					return ("preload(%s)" if m.strings[1].begins_with("pre") else "load(%s)") % [
-						rel_path
-					]
-			return ""
-		
-		# Indirect resources
-		matched_path = matched_path.trim_prefix("res://addons")
-		var split := matched_path.split("/")
-		if split.size() < 2:
-			return ""
-		
-		var wanted_addon := split[1]
-		var wanted_file := "/".join(split.slice(2))
-		
-		# TODO
-	
-	return ""
-
-static func _fix_tres(regex: RegEx) -> void:
-	pass
+#static func _fix_script(regex: RegEx, cwd: String, script_content: String) -> String:
+#	var offset: int = 0
+#	for m in regex.search_all(script_content):
+#		# m.strings[(the entire match), (the pre part), (group contents)]
+#		var matched_path: String = m.strings[2]
+#
+#		# Addon's own resources
+#		if FileAccess.file_exists(matched_path) or FileAccess.file_exists(cwd.path_join(matched_path)):
+#			if not matched_path.begins_with("."):
+#				var rel_path := absolute_to_relative(matched_path, cwd)
+#				if matched_path.length() > rel_path.length():
+#					return ("preload(%s)" if m.strings[1].begins_with("pre") else "load(%s)") % [
+#						rel_path
+#					]
+#			return ""
+#
+#		# Indirect resources
+#		matched_path = matched_path.trim_prefix("res://addons")
+#		var split := matched_path.split("/")
+#		if split.size() < 2:
+#			return ""
+#
+#		var wanted_addon := split[1]
+#		var wanted_file := "/".join(split.slice(2))
+#
+#		# TODO
+#
+#	return ""
+#
+#static func _fix_tres(regex: RegEx) -> void:
+#	pass
 
 #-----------------------------------------------------------------------------#
 # Public functions
 #-----------------------------------------------------------------------------#
 
-## Saves some text at a given path.
+## Saves some text at a given path. [br]
 ##
-## @param path: String - The path to save the text at.
-## @param text: String - The text to save.
+## Params: [br]
+## [param path]: [String] - The path to save the text at. [br]
+## [param text]: [String] - The text to save. [br]
 ##
-## @return int - The error code.
+## [param int] - The error code.
 static func save_string(path: String, text: String) -> int:
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
@@ -61,12 +68,14 @@ static func save_string(path: String, text: String) -> int:
 	
 	return OK
 
-## Saves some bytes at a given path.
+## Saves some bytes at a given path. [br]
 ##
-## @param path: String - The path to save the bytes at.
-## @param text: String - The bytes to save.
+## Params: [br]
+## [param path]: [String] - The path to save the bytes at. [br]
+## [param text]: [String] - The bytes to save. [br]
 ##
-## @return int - The error code.
+## Returns: [br]
+## [param int] - The error code.
 static func save_bytes(path: String, bytes: PackedByteArray) -> int:
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
@@ -85,41 +94,85 @@ static func save_bytes(path: String, bytes: PackedByteArray) -> int:
 ## @param remove_res: bool - Whether to strip Godot's resource directory.
 ##
 ## @param String - The convert path.
-static func absolute_to_relative(path: String, cwd: String, remove_res: bool = true) -> String:
-	var r := ""
-	
-	if remove_res:
-		path = path.replace(RES_DIR, "")
-		cwd = path.replace(RES_DIR, "")
-	
-	var floating_path := cwd
-	
-	while floating_path.replace(path, floating_path) == path:
-		floating_path = floating_path.get_base_dir()
-		
-		r = "../%s" % r if not r.is_empty() else ".."
-	
-	if floating_path == "/":
-		r += "/"
-	
-	floating_path = floating_path.replace(path, floating_path)
-	if not floating_path.is_empty():
-		if not r.is_empty():
-			r += floating_path
-		else:
-			r = floating_path.substr(1)
-	
-	return r
+#static func absolute_to_relative(path: String, cwd: String, remove_res: bool = true) -> String:
+#	var r := ""
+#
+#	if remove_res:
+#		path = path.replace(RES_DIR, "")
+#		cwd = path.replace(RES_DIR, "")
+#
+#	var floating_path := cwd
+#
+#	while floating_path.replace(path, floating_path) == path:
+#		floating_path = floating_path.get_base_dir()
+#
+#		r = "../%s" % r if not r.is_empty() else ".."
+#
+#	if floating_path == "/":
+#		r += "/"
+#
+#	floating_path = floating_path.replace(path, floating_path)
+#	if not floating_path.is_empty():
+#		if not r.is_empty():
+#			r += floating_path
+#		else:
+#			r = floating_path.substr(1)
+#
+#	return r
 
-static func fix_script_path(regex: RegEx, file_path: String) -> int:
-	var base_dir := file_path.replace("", "")
-	var offset: int = 0
-	for m in regex.search_all(FileAccess.get_file_as_string(file_path)):
+static func fix_script_path(
+	regex: RegEx,
+	file_path: String,
+	deps: Array[Package]
+) -> int:
+	var file := FileAccess.open(file_path, FileAccess.WRITE_READ)
+	if file == null:
+		printerr("Unable to open file at %s" % file_path)
+		return ERR_FILE_CANT_OPEN
+	
+	var file_content := file.get_as_text()
+	
+	# Read file contents without modifying anything in the source file
+	var replacements := {}
+	for m in regex.search_all(file_content):
 		# m.strings[(the entire match), (the pre part), (group content)]
 		var matched_path: String = m.strings[2]
-#		if FileAccess.file_exists(matched_path) or FileAccess.file
-
-	# TODO
+		# Already the correct absolute path
+		if FileAccess.file_exists(matched_path):
+			return OK
+		
+		var split := matched_path.trim_prefix("res://").lstrip("./").split("/", false, 1)
+		if split.size() != 2:
+			printerr("Failed to split script path: %s" % str(split))
+			return ERR_DOES_NOT_EXIST
+		
+		var addon_name := split[0]
+		var uri := split[1]
+		
+		var filtered_deps := deps.filter(func(package: Package) -> bool:
+			return package.name == addon_name
+		)
+		if filtered_deps.size() != 1:
+			printerr("Failed to find matching package %s for file %s" % [addon_name, file_path])
+			return ERR_DOES_NOT_EXIST
+		
+		var dep: Package = filtered_deps.front()
+		
+		var new_path := "%s/%s/%s/%s" % [
+			DEPENDENCIES_DIR, addon_name, dep.version, uri
+		]
+		
+		replacements[matched_path] = new_path
+	
+	# Actually start modifying source
+	for key in replacements.keys():
+		var val: String = replacements[key]
+		
+		file_content.replace(key, val)
+	
+	file.store_string(file_content)
+	
+	file.close()
 	
 	return OK
 
@@ -132,13 +185,15 @@ static func fix_tres_path(regex: RegEx, file_path: String) -> int:
 	
 	return OK
 
-## Emulates `tar xzf <file_path> --strip-components=1 -C <output_path>`.
+## Emulates `tar xzf <file_path> --strip-components=1 -C <output_path>`. [br]
 ##
-## @param file_path: String - The res:// file path to a tar.gz file.
-## @param output_path: String - The res:// path to extract to.
+## Params: [br]
+## [param file_path]: [String] - The res:// file path to a tar.gz file. [br]
+## [param output_path]: [String] - The res:// path to extract to. [br]
 ##
-## @return int - The error code.
+## [param int] - The error code.
 static func xzf_native(file_path: String, output_path: String) -> int:
+	
 	var output := []
 	var exit_code := OS.execute(
 		"tar",
@@ -157,15 +212,17 @@ static func xzf_native(file_path: String, output_path: String) -> int:
 	
 	return OK
 
-# TODO doesn't work at all
-## Decompress a `.tar.gz` file.
-## https://github.com/godotengine/godot-proposals/issues/6089#issuecomment-1417950525
+# TODO broken
+## Decompress a `.tar.gz` file. [br]
+## [url]https://github.com/godotengine/godot-proposals/issues/6089#issuecomment-1417950525[/url]
+## [br]
 ##
-## @param file_path: String - The path to the `.tar.gz` file.
-## @param output_path: String - The path where the files should be extracted to.
+## [param file_path]: [String] - The path to the `.tar.gz` file. [br]
+## [param output_path]: [String] - The path where the files should be extracted to. [br]
 ##
-## @return int - The error code.
-static func xzf(file_path: String, output_path: String) -> int:
+## Returns: [br]
+## [param int] - The error code.
+static func xzf(file_path: String, output_path: String, size: int = 0) -> int:
 	var file := FileAccess.open(file_path, FileAccess.READ)
 	if file == null:
 		return FileAccess.get_open_error()
@@ -173,7 +230,8 @@ static func xzf(file_path: String, output_path: String) -> int:
 	var buffer := file.get_buffer(file.get_length())
 	file.close()
 	
-	buffer = buffer.decompress_dynamic(-1, FileAccess.COMPRESSION_GZIP)
+	buffer = buffer.decompress_dynamic(-1, FileAccess.COMPRESSION_GZIP) if size < 1 else \
+		buffer.decompress(size, FileAccess.COMPRESSION_GZIP)
 	if buffer.size() < 1:
 		return ERR_INVALID_DATA
 	

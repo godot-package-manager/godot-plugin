@@ -83,34 +83,17 @@ func _ready() -> void:
 	_screens.add_child(npm_search)
 	
 	# TODO testing
-#	var body: Dictionary = await gpm.npm.get_manifests(gpm.net, "@sometimes_youwin/gut")
-#	var body: Array = await gpm.npm.search("verbal expressions")
-#	print(JSON.stringify(body, "\t"))
+	gpm.message_logged.connect(func(t):
+		print("Message logged: ", t))
+	gpm.operation_started.connect(func(t):
+		print("Operation started: ", t))
+	gpm.operation_checkpoint_reached.connect(func(a, b):
+		print("Checkpoint: ", a, b))
+	gpm.operation_finished.connect(func(t):
+		print("Operation finished: ", t))
 	
-#	var body: Dictionary = await gpm.npm.get_manifest("@sometimes_youwin/verbal-expressions", "1.0.1")
-#	print(JSON.stringify(body, "\t"))
-	
-#	var config := gpm.Config.new()
-#	await config.parse({
-#		"@sometimes_youwin/verbal-expressions": "1.0.1"
-#	})
-#
-#	print("finished parsing")
-#
-#	for i in config:
-#		print(i)
-	var data := await gpm.update_packages()
-
-#	var regex := RegEx.create_from_string("(pre)?load\\(\\\"([^)]+)\\\"\\)")
-#	for m in regex.search_all("""
-#extends Node
-#
-#const Whatever := preload("res://some/path/here.gd")
-#
-#func _ready() -> void:
-#	pass
-#	""".strip_edges()):
-#		print(m.strings)
+#	var data := await gpm.update_packages()
+	print("res://./../../.././hello/world".trim_prefix("res:").lstrip("./"))
 	
 	update_status("Ready!")
 
