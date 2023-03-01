@@ -85,47 +85,22 @@ static func save_bytes(path: String, bytes: PackedByteArray) -> int:
 	
 	return OK
 
-# TODO (Tim Yuen) I'm actually not really able to follow the Godot 3 implementation
-# check if this actually works
-## Convert an absoulte path to a relative path.
+## Fix absolute/relative paths in direct dependencies to point towards the indirect depedency
+## directory. Works for both [GDScript] files and [PackedScene]s. [br]
 ##
-## @param path: String - The absolute path to convert.
-## @param cwd: String - The current working directory.
-## @param remove_res: bool - Whether to strip Godot's resource directory.
+## Params: [br]
+## [param regex]: [RegEx] - The regex to use. [br]
+## [param file_path]: [String] - The path to the file to modify. [br]
+## [param deps]: [Array] - The dependencies of the [param file_path]. [br]
 ##
-## @param String - The convert path.
-#static func absolute_to_relative(path: String, cwd: String, remove_res: bool = true) -> String:
-#	var r := ""
-#
-#	if remove_res:
-#		path = path.replace(RES_DIR, "")
-#		cwd = path.replace(RES_DIR, "")
-#
-#	var floating_path := cwd
-#
-#	while floating_path.replace(path, floating_path) == path:
-#		floating_path = floating_path.get_base_dir()
-#
-#		r = "../%s" % r if not r.is_empty() else ".."
-#
-#	if floating_path == "/":
-#		r += "/"
-#
-#	floating_path = floating_path.replace(path, floating_path)
-#	if not floating_path.is_empty():
-#		if not r.is_empty():
-#			r += floating_path
-#		else:
-#			r = floating_path.substr(1)
-#
-#	return r
-
-static func fix_script_path(
+## Returns: [br]
+## [param int] - The error code.
+static func fix_path(
 	regex: RegEx,
 	file_path: String,
 	deps: Array[Package]
 ) -> int:
-	var file := FileAccess.open(file_path, FileAccess.WRITE_READ)
+	var file := FileAccess.open(file_path, FileAccess.READ_WRITE)
 	if file == null:
 		printerr("Unable to open file at %s" % file_path)
 		return ERR_FILE_CANT_OPEN
@@ -135,13 +110,13 @@ static func fix_script_path(
 	# Read file contents without modifying anything in the source file
 	var replacements := {}
 	for m in regex.search_all(file_content):
-		# m.strings[(the entire match), (the pre part), (group content)]
-		var matched_path: String = m.strings[2]
+		# m.strings[(the entire match), (group content)]
+		var matched_path: String = m.strings[1]
 		# Already the correct absolute path
 		if FileAccess.file_exists(matched_path):
 			return OK
 		
-		var split := matched_path.trim_prefix("res://").lstrip("./").split("/", false, 1)
+		var split := matched_path.trim_prefix("res://addons").lstrip("./").split("/", false, 1)
 		if split.size() != 2:
 			printerr("Failed to split script path: %s" % str(split))
 			return ERR_DOES_NOT_EXIST
@@ -168,20 +143,11 @@ static func fix_script_path(
 	for key in replacements.keys():
 		var val: String = replacements[key]
 		
-		file_content.replace(key, val)
+		file_content = file_content.replace(key, val)
 	
 	file.store_string(file_content)
 	
 	file.close()
-	
-	return OK
-
-static func fix_tres_path(regex: RegEx, file_path: String) -> int:
-	var offset: int = 0
-	for m in regex.search_all(FileAccess.get_file_as_string(file_path)):
-		var matched_path: String = m.strings[1]
-	
-	# TODO
 	
 	return OK
 

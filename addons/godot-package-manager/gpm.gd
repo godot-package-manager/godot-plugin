@@ -55,7 +55,7 @@ var _hostname_regex := RegEx.create_from_string(
 )
 
 var _script_regex := RegEx.create_from_string(
-	"(pre)?load\\(\\\"([^)]+)\\\"\\)"
+	"load\\(\\\"([^)]+)\\\"\\)"
 )
 var _tres_regex := RegEx.create_from_string(
 	"\\[ext_resource path=\"([^\"]+)\""
