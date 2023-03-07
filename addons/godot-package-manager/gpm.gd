@@ -251,9 +251,9 @@ func update_package(package: Model.Package) -> int:
 	
 	var host_path_pair := _get_host_path_pair(response.url)
 	
-	var bytes := await Net.get_request(host_path_pair.host, host_path_pair.path, [200])
+	var tarball_bytes := await Net.get_request(host_path_pair.host, host_path_pair.path, [200])
 	
-	if not _valid_sha1sum(bytes, response.shasum):
+	if not _valid_sha1sum(tarball_bytes, response.shasum):
 		message_logged.emit("Sha1 sums do not match for %s@%s. This might be dangerous" % [
 			package.name, package.version
 		])
@@ -285,7 +285,7 @@ func update_package(package: Model.Package) -> int:
 	
 	var tar_path := "%s/%s.tar.gz" % [package_dir, package.unscoped_name()]
 	
-	err = FileUtils.save_bytes(tar_path, bytes)
+	err = FileUtils.save_bytes(tar_path, tarball_bytes)
 	if err != OK:
 		message_logged.emit("Cannot save bytes at %s for %s" % [tar_path, package.name])
 		return err
