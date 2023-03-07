@@ -1,13 +1,14 @@
 extends RefCounted
 
+## The package config file for [GodotPackageManager].
+
 const DEPENDENCY_KEY := "dependencies"
 
-const Package := preload("./package.gd")
-const Npm := preload("../npm.gd")
+const Package := GodotPackageManager.Model.Package
+const Npm := GodotPackageManager.Npm
 
+## Package name -> Package
 var packages := {}
-
-var parse_error := ""
 
 var _iter_values := []
 var _iter_current: int = -1
@@ -15,9 +16,6 @@ var _iter_current: int = -1
 #-----------------------------------------------------------------------------#
 # Builtin functions
 #-----------------------------------------------------------------------------#
-
-func _init() -> void:
-	pass
 
 func _iter_init(_arg: Variant) -> bool:
 	_iter_current = 0
@@ -30,6 +28,13 @@ func _iter_next(_arg: Variant) -> bool:
 
 func _iter_get(_arg: Variant) -> Package:
 	return _iter_values[_iter_current]
+
+func _to_string() -> String:
+	var r := {}
+	for package in packages.values():
+		r[package.name] = package.version
+	
+	return JSON.stringify(r, "\t")
 
 #-----------------------------------------------------------------------------#
 # Private functions
@@ -61,10 +66,10 @@ func parse(dict: Dictionary, direct_dep: Package = null) -> int:
 			return ERR_CANT_RESOLVE
 		
 		var root_package: Package = null
-		if direct_dep == null:
+		if direct_dep == null: # This is the direct dependency
 			root_package = Package.new(package_name, package_version, false)
 			add(root_package)
-		else:
+		else: # Otherwise, it is an indirect dependency
 			root_package = direct_dep
 			root_package.dependencies.push_back(Package.new(
 				package_name, package_version, true

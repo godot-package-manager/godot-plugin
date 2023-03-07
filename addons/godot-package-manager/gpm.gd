@@ -1,3 +1,4 @@
+class_name GodotPackageManager
 extends RefCounted
 
 ## Godot Package Manager.
@@ -33,20 +34,17 @@ signal operation_finished(operation_name: String)
 
 ## Path to the [code]godot.package[/code] file.
 const PACKAGE_CONFIG_PATH := "res://godot.package"
+const LOCK_FILE_PATH := "res://package.lock"
 const ADDONS_DIR_FORMAT := "res://addons/%s"
 # TODO move this into a constant file?
 const DEPENDENCIES_DIR_FORMAT := "res://addons/__gpm_deps/%s/%s"
 
-## A config object.
-const Config := preload("./model/config.gd")
-## A package object.
-const Package := preload("./model/package.gd")
+const Model := preload("./model/model.gd")
 
-var npm := preload("./npm.gd").new()
-var net := preload("./net.gd").new()
-var dir_utils := preload("./dir_utils.gd").new()
-var file_utils := preload("./file_utils.gd").new()
-#var dict_utils := preload("./dict_utils.gd").new()
+const Npm := preload("./npm.gd")
+const Net := preload("./net.gd")
+const DirUtils := preload("./dir_utils.gd")
+const FileUtils := preload("./file_utils.gd")
 
 ## [url]https://www.rfc-editor.org/rfc/rfc3986#appendix-B[/url] [br]
 ## Use host ($1, $3) and path ($5, $6, $8).
@@ -61,9 +59,36 @@ var _tres_regex := RegEx.create_from_string(
 	"\\[ext_resource path=\"([^\"]+)\""
 )
 
+var config: Model.Config = null
+var _config_sha1sum := ""
+var lock_file: Model.LockFile = null
+
 #-----------------------------------------------------------------------------#
 # Builtin functions
 #-----------------------------------------------------------------------------#
+
+func _init() -> void:
+	config = await _read_config()
+	if config == null:
+		config = Model.Config.new()
+		FileUtils.save_string(PACKAGE_CONFIG_PATH, config.to_string())
+	
+	_config_sha1sum = FileUtils.sha1sum_file(PACKAGE_CONFIG_PATH)
+	
+	lock_file = _read_lock_file()
+	if lock_file == null:
+		lock_file = Model.LockFile.new({})
+		FileUtils.save_string(LOCK_FILE_PATH, lock_file.to_string())
+	
+	for package_name in lock_file.packages:
+		if not config.packages.has(package_name):
+			# TODO this is probably an indirect dependency. Need to figure out a way to track
+			# whether those are installed
+			continue
+		
+		# TODO should probably check for the actual directory as well instead of just assuming
+		# the lock file is correct
+		config.packages[package_name].is_installed = true
 
 #-----------------------------------------------------------------------------#
 # Private functions
@@ -73,8 +98,8 @@ var _tres_regex := RegEx.create_from_string(
 ##
 ## Returns: [br]
 ## [param Config] - The parsed [constant Config] or [code]null[/code] if there was an error.
-static func _read_config() -> Config:
-	var r := Config.new()
+static func _read_config() -> Model.Config:
+	var r := Model.Config.new()
 	
 	var file := FileAccess.open(PACKAGE_CONFIG_PATH, FileAccess.READ)
 	if file == null:
@@ -84,7 +109,7 @@ static func _read_config() -> Config:
 	var data: Variant = JSON.parse_string(file.get_as_text())
 	if not data is Dictionary:
 		printerr(
-			"Config should be Dictionary but was Array from config at %s" % PACKAGE_CONFIG_PATH)
+			"Config should be a Dictionary but was Array from config at %s" % PACKAGE_CONFIG_PATH)
 		return null
 	
 	if await r.parse(data) != OK:
@@ -92,6 +117,19 @@ static func _read_config() -> Config:
 		return null
 	
 	return r
+
+static func _read_lock_file() -> Model.LockFile:
+	var file := FileAccess.open(LOCK_FILE_PATH, FileAccess.READ)
+	if file == null:
+		printerr("Unable to open lock file at path %s" % LOCK_FILE_PATH)
+		return null
+	
+	var data: Variant = JSON.parse_string(file.get_as_text())
+	if not data is Dictionary:
+		printerr("Lock file should be a Dictionary but it was not %s" % LOCK_FILE_PATH)
+		return null
+	
+	return Model.LockFile.new(data)
 
 func _get_host_path_pair(url: String) -> Dictionary:
 	var r := _hostname_regex.search(url)
@@ -110,12 +148,43 @@ func _get_host_path_pair(url: String) -> Dictionary:
 ##
 ## Returns: [br]
 ## [param bool] - Whether the calculated sha1 matches the expected sha1 sum.
-func _valid_sha1sum(actual: PackedByteArray, expected: String) -> bool:
-	var ctx := HashingContext.new()
-	ctx.start(HashingContext.HASH_SHA1)
-	ctx.update(actual)
+static func _valid_sha1sum(actual: PackedByteArray, expected: String) -> bool:
+	return FileUtils.sha1sum_bytes(actual) == expected
+
+# TODO removed typed array since that causes an invalid type error (even though the type is valid)
+## Scans files for relative/absolute file paths and remaps them if necessary. [br]
+##
+## Params: [br]
+## [param paths]: [Dictionary] - A list of file paths from [constant DirUtils]. [br]
+## [param deps]: [Array] - A list of valid dependencies for the current function. These will be
+## used when remapping paths, since we need to know which files are valid dependencies. [br]
+##
+## Returns: [br]
+## [param int] - The error code.
+func _fix_file_paths(paths: Dictionary, deps: Array) -> int:
+	for val in paths.values():
+		match typeof(val):
+			TYPE_STRING: # StringName not handled since that should be impossible
+				var regex: RegEx = null
+				match val.get_extension().to_lower():
+					"gd":
+						regex = _script_regex
+					"tres", "tscn":
+						regex = _tres_regex
+					_:
+						message_logged.emit("Unhandled file extension for file: %s" % val)
+						continue
+				
+				var err := FileUtils.fix_path(regex, val, deps)
+				if err != OK:
+					message_logged.emit("Error %d occurred while fixing paths for file %s" % [
+						err, val])
+			TYPE_DICTIONARY:
+				return _fix_file_paths(val, deps)
+			_:
+				message_logged.emit("Unexpected value found while fixing file paths: %s" % str(val))
 	
-	return ctx.finish().hex_encode() == expected
+	return OK
 
 #-----------------------------------------------------------------------------#
 # Public functions
@@ -133,11 +202,18 @@ func status() -> Dictionary:
 	
 	var r := {}
 	
-	var config := await _read_config()
-	if config == null:
-		message_logged.emit("Unable to read config")
-		return r
+	var config: Model.Config = null
 	
+	# Only re-read the config if it has been modified
+	if FileUtils.sha1sum_file(PACKAGE_CONFIG_PATH) == _config_sha1sum:
+		config = self.config
+	else:
+		config = await _read_config()
+		if config == null:
+			message_logged.emit("Unable to read config")
+			return r
+		_config_sha1sum = FileUtils.sha1sum_file(PACKAGE_CONFIG_PATH)
+		
 	for package in config:
 		var dep_data := {}
 		for inner_package in package.dependencies:
@@ -161,23 +237,21 @@ func status() -> Dictionary:
 ##
 ## Return: [br]
 ## [param int] - The error code.
-func update_package(package: Package) -> int:
+func update_package(package: Model.Package) -> int:
 	var operation_name := "Update package %s@%s" % [package.name, package.version]
 	
 	operation_started.emit(operation_name)
 	
-	var response := await npm.get_tarball_info(package.name, package.version)
+	var response := await Npm.get_tarball_info(package.name, package.version)
 	if response.is_error:
 		message_logged.emit("Could not get tarball info for %s@%s" % [
 			package.name, package.version
 		])
 		return ERR_DOES_NOT_EXIST
 	
-	# TODO check compare tarball shasum against lockfile
-	
 	var host_path_pair := _get_host_path_pair(response.url)
 	
-	var bytes := await net.get_request(host_path_pair.host, host_path_pair.path, [200])
+	var bytes := await Net.get_request(host_path_pair.host, host_path_pair.path, [200])
 	
 	if not _valid_sha1sum(bytes, response.shasum):
 		message_logged.emit("Sha1 sums do not match for %s@%s. This might be dangerous" % [
@@ -185,13 +259,21 @@ func update_package(package: Package) -> int:
 		])
 		return ERR_FILE_CORRUPT
 	
+	if lock_file.has(package.name, response.shasum):
+		operation_finished.emit("Package already exists with the correct shasum: %s - %s" % [
+			package.name, response.shasum
+		])
+		return OK
+	
 	var package_dir := ADDONS_DIR_FORMAT % package.unscoped_name() if not package.is_indirect else \
 		DEPENDENCIES_DIR_FORMAT % [package.version, package.unscoped_name()]
+	
+	package.install_dir = package_dir
 	
 	if DirAccess.dir_exists_absolute(package_dir):
 		message_logged.emit("%s already exists, removing recursively" % package_dir)
 		
-		var err := dir_utils.remove_dir_recursive(package_dir)
+		var err := DirUtils.remove_dir_recursive(package_dir)
 		if err != OK:
 			message_logged.emit("Cannot remove directory recursively %s" % package_dir)
 			return err
@@ -203,12 +285,12 @@ func update_package(package: Package) -> int:
 	
 	var tar_path := "%s/%s.tar.gz" % [package_dir, package.unscoped_name()]
 	
-	err = file_utils.save_bytes(tar_path, bytes)
+	err = FileUtils.save_bytes(tar_path, bytes)
 	if err != OK:
 		message_logged.emit("Cannot save bytes at %s for %s" % [tar_path, package.name])
 		return err
 	
-	err = file_utils.xzf_native(tar_path, package_dir)
+	err = FileUtils.xzf_native(tar_path, package_dir)
 	if err != OK:
 		message_logged.emit("Cannot untar package at %s for %s" % [tar_path, package.name])
 		return err
@@ -225,12 +307,16 @@ func update_package(package: Package) -> int:
 				dep.name, dep.version,
 				package.name, package.version
 			])
+			return err
 	
-	# TODO fix paths for all dependencies
-	if not package.is_indirect:
-		pass
-	else:
-		pass
+	err = _fix_file_paths(DirUtils.get_files_recursive(package_dir), package.dependencies)
+	if err != OK:
+		message_logged.emit("Error %d occurred while fixing file paths for package %s" % [
+			err, package.name
+		])
+	
+	package.is_installed = true
+	lock_file.add(package.name, response.shasum)
 	
 	operation_finished.emit(operation_name)
 	
@@ -256,6 +342,11 @@ func update_packages() -> int:
 		if err != OK:
 			return err
 	
+	var err := FileUtils.save_string(LOCK_FILE_PATH, lock_file.to_string())
+	if err != OK:
+		message_logged.emit("Failed to save lock file with error code %d" % err)
+		return err
+	
 	operation_finished.emit(operation_name)
 	
 	return OK
@@ -268,6 +359,8 @@ func clean() -> int:
 	var operation_name := "Clean packages"
 	
 	operation_started.emit(operation_name)
+	
+	# TODO stub
 	
 	operation_finished.emit(operation_name)
 	
@@ -285,6 +378,8 @@ func purge_package(package_name: String) -> int:
 	
 	operation_started.emit(operation_name)
 	
+	# TODO stub
+	
 	operation_finished.emit(operation_name)
 	
 	return OK
@@ -297,6 +392,8 @@ func purge_packages() -> int:
 	var operation_name := "Purge packages"
 	
 	operation_started.emit(operation_name)
+	
+	# TODO stub
 	
 	operation_finished.emit(operation_name)
 	

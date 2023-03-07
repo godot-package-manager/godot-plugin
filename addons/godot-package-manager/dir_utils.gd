@@ -54,7 +54,7 @@ static func _get_files_recursive(original_path: String, current_path: String) ->
 ## [param path]: [String] - The path to search. [br]
 ##
 ## Returns: [br]
-## [param Dictionary] - Keys are relative paths, values are either file names or
+## [param Dictionary] - Keys are relative paths, values are either file paths or
 ## [Dictionary]s (indicating an inner directory).
 static func get_files_recursive(path: String) -> Dictionary:
 	path = ProjectSettings.globalize_path(path)

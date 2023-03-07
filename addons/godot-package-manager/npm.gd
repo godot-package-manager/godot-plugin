@@ -4,8 +4,8 @@ extends RefCounted
 ##
 ## Reference: [url]https://github.com/npm/registry/blob/master/docs/REGISTRY-API.md[/url]
 
-const Net := preload("res://addons/godot-package-manager/net.gd")
-const TarballInfo := preload("res://addons/godot-package-manager/model/npm_tarball_info.gd")
+const TarballInfo := GodotPackageManager.Model.NpmTarballInfo
+const Net := GodotPackageManager.Net
 
 const PackageJson := {
 	"PACKAGES": "packages",

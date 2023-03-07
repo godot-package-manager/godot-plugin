@@ -13,7 +13,7 @@ const NpmSearch := preload("res://addons/godot-package-manager/gui/npm_search.ts
 const NPM_SEARCH_NAME := "NPM Search"
 
 var plugin: Node = null
-var gpm := preload("res://addons/godot-package-manager/gpm.gd").new()
+var gpm := await preload("res://addons/godot-package-manager/gpm.gd").new()
 
 @onready
 var _screens: TabContainer = %Screens
@@ -37,10 +37,10 @@ func _ready() -> void:
 		add_child(popup)
 	)
 	%PackageStatus.pressed.connect(func() -> void:
-		pass
+		await gpm.status()
 	)
 	%UpdatePackages.pressed.connect(func() -> void:
-		pass
+		await gpm.update_packages()
 	)
 	%ClearPackages.pressed.connect(func() -> void:
 		var popup := ConfirmationDialog.new()
@@ -56,8 +56,7 @@ func _ready() -> void:
 			popup.queue_free()
 		)
 		popup.confirmed.connect(func() -> void:
-			# TODO stub
-			pass
+			await gpm.purge_packages()
 		)
 		popup.cancelled.connect(func() -> void:
 			popup.hide()
@@ -91,9 +90,6 @@ func _ready() -> void:
 		print("Checkpoint: ", a, b))
 	gpm.operation_finished.connect(func(t):
 		print("Operation finished: ", t))
-	
-#	var data := await gpm.update_packages()
-	print("res://./../../.././hello/world".trim_prefix("res:").lstrip("./"))
 	
 	update_status("Ready!")
 

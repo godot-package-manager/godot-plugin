@@ -2,7 +2,7 @@ extends RefCounted
 
 ## File utilities for Godot Package Manager.
 
-const Package := preload("res://addons/godot-package-manager/model/package.gd")
+const Package := GodotPackageManager.Model.Package
 
 #const RES_DIR := "res://"
 # TODO move this into a constant file?
@@ -15,38 +15,6 @@ const DEPENDENCIES_DIR := "res://addons/__gpm_deps/"
 #-----------------------------------------------------------------------------#
 # Private functions
 #-----------------------------------------------------------------------------#
-
-#static func _fix_script(regex: RegEx, cwd: String, script_content: String) -> String:
-#	var offset: int = 0
-#	for m in regex.search_all(script_content):
-#		# m.strings[(the entire match), (the pre part), (group contents)]
-#		var matched_path: String = m.strings[2]
-#
-#		# Addon's own resources
-#		if FileAccess.file_exists(matched_path) or FileAccess.file_exists(cwd.path_join(matched_path)):
-#			if not matched_path.begins_with("."):
-#				var rel_path := absolute_to_relative(matched_path, cwd)
-#				if matched_path.length() > rel_path.length():
-#					return ("preload(%s)" if m.strings[1].begins_with("pre") else "load(%s)") % [
-#						rel_path
-#					]
-#			return ""
-#
-#		# Indirect resources
-#		matched_path = matched_path.trim_prefix("res://addons")
-#		var split := matched_path.split("/")
-#		if split.size() < 2:
-#			return ""
-#
-#		var wanted_addon := split[1]
-#		var wanted_file := "/".join(split.slice(2))
-#
-#		# TODO
-#
-#	return ""
-#
-#static func _fix_tres(regex: RegEx) -> void:
-#	pass
 
 #-----------------------------------------------------------------------------#
 # Public functions
@@ -85,6 +53,37 @@ static func save_bytes(path: String, bytes: PackedByteArray) -> int:
 	
 	return OK
 
+## Calculate the hex-encoded, sha1sum for a given file. [br]
+##
+## Params: [br]
+## [param path]: [String] - The path to the file to calculate the sha1sum for. [br]
+##
+## Returns: [br]
+## [param String] - The hex-encoded, sha1sum for the file. Will be an empty string if the file
+## does not exist.
+static func sha1sum_file(path: String) -> String:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return ""
+	
+	return sha1sum_bytes(file.get_buffer(file.get_length()))
+
+## Calculate the hex-encoded, sha1sum for the given bytes. [br]
+##
+## Params: [br]
+## [param bytes]: [PackedByteArray] - The bytes to calculate the sha1sum for. [br]
+##
+## Returns: [br]
+## [param String] - The hex-encoded, sha1sum for the file. Will be an empty string if the file
+## does not exist.
+static func sha1sum_bytes(bytes: PackedByteArray) -> String:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA1)
+	ctx.update(bytes)
+	
+	return ctx.finish().hex_encode()
+
+# TODO removed typed array since that was causing type errors (even though the type is correct)
 ## Fix absolute/relative paths in direct dependencies to point towards the indirect depedency
 ## directory. Works for both [GDScript] files and [PackedScene]s. [br]
 ##
@@ -98,7 +97,7 @@ static func save_bytes(path: String, bytes: PackedByteArray) -> int:
 static func fix_path(
 	regex: RegEx,
 	file_path: String,
-	deps: Array[Package]
+	deps: Array
 ) -> int:
 	var file := FileAccess.open(file_path, FileAccess.READ_WRITE)
 	if file == null:
@@ -124,7 +123,7 @@ static func fix_path(
 		var addon_name := split[0]
 		var uri := split[1]
 		
-		var filtered_deps := deps.filter(func(package: Package) -> bool:
+		var filtered_deps := deps.filter(func(package: GodotPackageManager.Model.Package) -> bool:
 			return package.name == addon_name
 		)
 		if filtered_deps.size() != 1:
