@@ -1,7 +1,7 @@
 extends VBoxContainer
 
-const Gpm := preload("res://addons/godot-package-manager/gpm.gd")
-var gpm: Gpm = null
+var plugin: Node = null
+var gpm: GodotPackageManager = null
 
 @onready
 var search_element: LineEdit = %Search
@@ -41,7 +41,7 @@ func _search_npm(text: String) -> void:
 		return
 	_last_search_text = text
 	
-	var results: Array[Dictionary] = await gpm.npm.search(text)
+	var results: Array[Dictionary] = await GodotPackageManager.Npm.search(text)
 	
 	for i in results:
 		var data: Dictionary = i.get("package", {})

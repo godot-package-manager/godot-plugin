@@ -9,11 +9,14 @@ signal status_updated(text: String)
 const EditConfig := preload("res://addons/godot-package-manager/gui/edit_config.tscn")
 const Logs := preload("res://addons/godot-package-manager/gui/logs.tscn")
 
-const NpmSearch := preload("res://addons/godot-package-manager/gui/npm_search.tscn")
+const NpmSearch := preload("res://addons/godot-package-manager/gui/npm-search/npm_search.tscn")
 const NPM_SEARCH_NAME := "NPM Search"
 
+const Info := preload("res://addons/godot-package-manager/gui/info/info.tscn")
+const INFO_NAME := "Info"
+
 var plugin: Node = null
-var gpm := await preload("res://addons/godot-package-manager/gpm.gd").new()
+var gpm := await GodotPackageManager.new()
 
 @onready
 var _screens: TabContainer = %Screens
@@ -75,21 +78,31 @@ func _ready() -> void:
 		_show_logs_popup()
 	)
 	
+	# Tab setup
+	
+	var info := Info.instantiate()
+	plugin.inject_tool(info)
+	info.name = INFO_NAME
+	info.plugin = plugin
+	info.gpm = gpm
+	
+	_screens.add_child(info)
+	
 	var npm_search := NpmSearch.instantiate()
 	plugin.inject_tool(npm_search)
 	npm_search.name = NPM_SEARCH_NAME
+	npm_search.plugin = plugin
 	
 	_screens.add_child(npm_search)
 	
-	# TODO testing
-	gpm.message_logged.connect(func(t):
-		print("Message logged: ", t))
-	gpm.operation_started.connect(func(t):
-		print("Operation started: ", t))
-	gpm.operation_checkpoint_reached.connect(func(a, b):
-		print("Checkpoint: ", a, b))
-	gpm.operation_finished.connect(func(t):
-		print("Operation finished: ", t))
+	# End tab setup
+	
+	ready.connect(func() -> void:
+		while gpm.config == null:
+			await get_tree().process_frame
+		
+		info.update(gpm.config.packages.values(), gpm.lock_file.packages)
+	)
 	
 	update_status("Ready!")
 
@@ -98,7 +111,7 @@ func _ready() -> void:
 #-----------------------------------------------------------------------------#
 
 ## Shows a log popup containing the most recent logs. Note that logs are cleared according
-## the the [code]MAX_LOGS[/code] constant.
+## to [constant MAX_LOGS].
 func _show_logs_popup() -> void:
 	if (_log_popup != null) and is_instance_valid(_log_popup):
 		_log_popup.move_to_foreground()

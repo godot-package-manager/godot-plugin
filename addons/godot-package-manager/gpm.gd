@@ -331,10 +331,17 @@ func update_packages() -> int:
 	
 	operation_started.emit(operation_name)
 	
-	var config := await _read_config()
-	if config == null:
-		message_logged.emit("Unable to read config")
-		return ERR_PARSE_ERROR
+	var config: Model.Config = null
+	
+	# Only re-read the config if it has been modified
+	if FileUtils.sha1sum_file(PACKAGE_CONFIG_PATH) == _config_sha1sum:
+		config = self.config
+	else:
+		config = await _read_config()
+		if config == null:
+			message_logged.emit("Unable to read config")
+			return ERR_FILE_CANT_READ
+		_config_sha1sum = FileUtils.sha1sum_file(PACKAGE_CONFIG_PATH)
 	
 	for package in config:
 		operation_checkpoint_reached.emit(package.name, package.version)
