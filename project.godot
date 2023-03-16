@@ -6,23 +6,15 @@
 ;   [section] ; section goes between []
 ;   param=value ; assign values to parameters
 
-config_version=4
+config_version=5
 
 [application]
 
-config/name="Godot Package Manager"
-run/main_scene="res://runner/runner.tscn"
-config/icon="res://icon.png"
+config/name="Godot Package Manager Plugin"
+run/main_scene="res://runner.tscn"
+config/features=PackedStringArray("4.0", "Forward Plus")
+config/icon="res://icon.svg"
 
-[editor_plugins]
+[editor]
 
-enabled=PoolStringArray( "res://addons/godot-package-manager/plugin.cfg" )
-
-[physics]
-
-common/enable_pause_aware_picking=true
-
-[rendering]
-
-quality/driver/driver_name="GLES2"
-environment/default_environment="res://default_env.tres"
+script/templates_search_path="res://script-templates"

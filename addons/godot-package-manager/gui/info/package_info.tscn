@@ -1,0 +1,60 @@
+[gd_scene load_steps=2 format=3 uid="uid://drm21xnn7cdxk"]
+
+[ext_resource type="Script" path="res://addons/godot-package-manager/gui/info/package_info.gd" id="1_1rffm"]
+
+[node name="PackageInfo" type="HBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_1rffm")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PackageName" type="Label" parent="VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+text = "PLACEHOLDER"
+vertical_alignment = 1
+
+[node name="VBoxContainer" type="VBoxContainer" parent="VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Version" type="HBoxContainer" parent="VBoxContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Label" type="Label" parent="VBoxContainer/VBoxContainer/Version"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Version"
+
+[node name="Version" type="Label" parent="VBoxContainer/VBoxContainer/Version"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Installed" type="HBoxContainer" parent="VBoxContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Label" type="Label" parent="VBoxContainer/VBoxContainer/Installed"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Installed?"
+
+[node name="Installed" type="CheckBox" parent="VBoxContainer/VBoxContainer/Installed"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+
+[node name="Delete" type="CheckBox" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Delete"
